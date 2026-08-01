@@ -1,6 +1,29 @@
-# Scrobbler do Last.fm para o HiBy R1
+<h1 align="center">Scrobbler do Last.fm para o HiBy R1</h1>
 
-*[Read in English](README.md)*
+<p align="center">
+  <b>Scrobbla tudo o que você toca — arquivos locais <i>e</i> Tidal —
+  inclusive o que você ouviu sem rede nenhuma.</b><br>
+  Sem root. Sem mexer no firmware. Nunca escreve no banco do player.
+</p>
+
+<p align="center">
+  <img alt="Licenca: MIT" src="https://img.shields.io/badge/licen%C3%A7a-MIT-blue">
+  <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-blue">
+  <img alt="Sem dependencias" src="https://img.shields.io/badge/depend%C3%AAncias-nenhuma-brightgreen">
+  <img alt="Aparelho" src="https://img.shields.io/badge/aparelho-HiBy%20R1-lightgrey">
+  <img alt="Idiomas" src="https://img.shields.io/badge/interface-EN%20%2B%20PT--BR-informational">
+</p>
+
+<p align="center">
+  <a href="#o-que-ele-faz">Recursos</a> ·
+  <a href="#passo-a-passo">Instalar</a> ·
+  <a href="#o-que-ele-custa-de-bateria">Bateria</a> ·
+  <a href="#como-funciona-por-dentro">Como funciona</a> ·
+  <a href="#segurança-sem-enfeite">Segurança</a> ·
+  <a href="README.md">English</a>
+</p>
+
+---
 
 O R1 não tem scrobbling. Este programa põe um coletor minúsculo dentro do
 aparelho, que anota o que você ouve — inclusive offline, no avião, no carro —
@@ -8,8 +31,7 @@ e manda tudo para o Last.fm depois. Se o WiFi do R1 já estiver ligado, ele
 manda sozinho, sem PC nenhum no meio.
 
 Funciona no **HiBy R1 comum** (Ingenic X1600, MIPS32 little-endian, firmware de
-fábrica com ADB). Não precisa de root, não mexe no firmware, e não escreve no
-banco de dados do player em momento nenhum.
+fábrica com ADB).
 
 ```bash
 python r1lastfm.py
@@ -35,6 +57,20 @@ a qualquer momento no canto inferior direito da janela.
 
 ## O que ele faz
 
+|  | |
+|---|---|
+| **Tidal, não só arquivo local** | Faixas transmitidas nunca entram no banco local do player — por isso um scrobbler que só lê esse banco é cego a elas. Este lê o id da faixa que o player deixa no aparelho e pergunta artista, título, álbum e duração à própria API do Tidal, com o token que já está lá. |
+| **Coleta offline** | Uma viagem inteira sem rede: o que tocou fica guardado no aparelho e sai quando aparecer conexão. Nada se perde, nada é chutado. |
+| **Duas saídas, ao mesmo tempo** | Sozinho pelo WiFi do R1, e/ou pelo cabo a partir do PC. Nunca se duplicam, porque o que foi aceito fica anotado no aparelho. |
+| **“Tocando agora” ao vivo** | A faixa em reprodução pulsa no seu perfil do Last.fm — para arquivo local e para Tidal. |
+| **Tempo ouvido honesto** | Metade da faixa ou quatro minutos, a regra do próprio Last.fm. Uma faixa que você pulou aos 0:19 é anotada como 19 segundos e não vai. |
+| **Rápido** | O scrobble aparece uns 30 segundos depois de a faixa acabar, e não num relógio de doze minutos. |
+| **Registro e planilha no cartão** | `<cartao>/r1lastfm/scrobbles.csv` e `r1lastfm.log`. Tire o cartão, abra o CSV numa planilha — sem ADB, sem este programa, sem nada. |
+| **Barato** | 1 ms de processador por ciclo, **zero processos filhos** parado, 880 kB de RAM. Medido no aparelho. |
+| **Seu** | Sua própria chave de API do Last.fm, guardada só no seu computador. Sem conta, sem servidor, sem telemetria, nada liga para casa. |
+
+### Em detalhe
+
 * **Scrobbla o Tidal também.** Faixas transmitidas nunca entram no banco
   local do player, e é por isso que a maioria dos scrobblers de R1 simplesmente
   não as enxerga. Este lê o id da faixa que o player deixa no aparelho e
@@ -55,6 +91,24 @@ a qualquer momento no canto inferior direito da janela.
 * **Grava um registro e uma planilha no cartão**, em `<cartao>/r1lastfm/`:
   `r1lastfm.log` e `scrobbles.csv`. Tire o cartão, abra o CSV numa planilha —
   sem ADB, sem este programa, sem nada.
+
+### A planilha do cartão
+
+Linhas de verdade, saídas de um aparelho — faixas do Tidal, com as puladas
+marcadas como tal e o título do álbum entre aspas porque tem vírgula:
+
+```csv
+started_at,started_at_epoch,artist,track,album,album_artist,seconds_heard,track_seconds,status,rowid
+2026-08-01 16:36:05,1785612965,Odeal,Coming Home (feat. Jorja Smith),Coming Home (feat. Jorja Smith),,223,223,sent,1000000006
+2026-08-01 16:40:11,1785613211,Wale,Overthink,Overthink,,187,207,sent,1000000007
+2026-08-01 16:45:00,1785613500,Too $hort,So So So Good,"SIR TOO $HORT, VOL. 2 (DRINK & SMOKE)",,19,142,skipped,1000000008
+2026-08-01 16:45:19,1785613519,Train,Mad Dog in the Fog,Mad Dog in the Fog,,227,227,sent,1000000009
+2026-08-01 16:53:38,1785613980,Remi Wolf,Twiggy,Twiggy,,38,209,skipped,1000000011
+```
+
+O `status` é um de `sent`, `pending`, `skipped`, `track-too-short`,
+`too-old`, `future`, `bad-clock` ou `no-metadata` — dá para ver não só o que
+foi, mas por que o resto não foi.
 
 ## O que ele custa de bateria
 
