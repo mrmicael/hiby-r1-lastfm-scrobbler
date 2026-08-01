@@ -140,10 +140,15 @@ cost is indistinguishable from zero.
 |---|---|
 | **Python 3.9+ with Tkinter** | standard library only; nothing to `pip install` |
 | **adb** (Android Platform Tools) | how the program talks to the R1 |
-| **WSL + Zig** | *only* for automatic Wi-Fi sending. The program downloads and installs Zig itself, verifying the SHA256 published by ziglang.org |
 
-Without WSL/Zig the program is still useful: it collects, and sends over the
-cable.
+That is all, for everything except one optional feature. The two programs that
+run on the R1 ship already compiled, in
+[`r1lastfm/bin/`](r1lastfm/bin/) — you do **not** need a compiler.
+
+**Only** if you want the R1 to send by itself over Wi-Fi do you also need
+**WSL + Zig**, to build a static `curl` for the device. The program installs
+Zig itself, verifying the SHA256 published by ziglang.org. Without it,
+everything else works: it collects offline and sends over the cable.
 
 <details>
 <summary><b>Installing adb</b></summary>
@@ -207,8 +212,12 @@ On the device: **System → USB working mode → Device**. Then plug in the cabl
 > way it is with a bad cable. Also check that the cable carries data — many
 > only charge.
 
-In card 3, click **Build** and then **Install / update**. Building takes a
-minute or two the first time (the program downloads Zig if it needs to).
+In card 3, click **Install / update**. That is it — the programs that go on
+the device ship prebuilt.
+
+*(The **Build** button next to it is for people who would rather compile the
+two device programs themselves. If you do, yours is used instead of the ones
+that shipped. It needs Zig, which the program installs on its own.)*
 
 ### 4. Reboot the R1
 

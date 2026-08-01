@@ -305,11 +305,23 @@ if mst and mhz:
         ms_h = por_ciclo_ms * ciclos_h * fator
         print(f"   -> {rot}: {ciclos_h:.0f} ciclos/h = {ms_h:.0f} ms de CPU "
               f"por hora no R1 ({ms_h/36000:.4f}% do tempo)")
-    # Este numero inclui a partida do daemon (~35 ms de forks do `date`)
-    # diluida em CICLOS voltas. Medindo a inclinacao entre 60 e 180
-    # ciclos, o custo real de uma volta e 0,417 ms.
-    check("custo por ciclo abaixo de 2 ms (espera sem fork)",
-          por_ciclo_ms < 2.0, f"{por_ciclo_ms:.2f} ms")
+    # O que este numero e, e o que ele nao e.
+    #
+    # Ele AMORTIZA a partida do daemon nos CICLOS ciclos medidos. A partida
+    # faz trabalho de custo fixo — descobrir o cartao, escrever a planilha,
+    # cronometrar a espera —, entao acrescentar qualquer coisa ali empurra
+    # este numero para cima sem que uma volta do laco tenha ficado mais cara.
+    # Medindo a inclinacao entre 60 e 180 ciclos, o custo real de uma volta
+    # deu 0,417 ms.
+    #
+    # O que o limite protege e a regressao que importa: um fork por volta. A
+    # diferenca entre esperar num fifo e chamar `sleep` e de ~8 ms por ciclo,
+    # e qualquer comando externo no caminho ocioso custa a mesma ordem — foi
+    # exatamente assim que a consulta do Tidal a cada volta apareceu aqui,
+    # com 17,8 ms. Quatro milissegundos pegam isso com folga e nao quebram
+    # numa maquina ocupada, onde a mesma medicao ja deu 2,00 e 2,33.
+    check("custo por ciclo abaixo de 4 ms (espera sem fork)",
+          por_ciclo_ms < 4.0, f"{por_ciclo_ms:.2f} ms")
 if mrss:
     kb = int(mrss.group(1))
     print(f"   memoria residente do daemon: {kb} kB")

@@ -495,6 +495,34 @@ class Painel(ttk.Frame):
             t("zig.installed", versao=versao)))
         return pasta
 
+    def _programa(self, nome: str, fonte: str, rotulo: str):
+        """O binário do aparelho: o compilado aqui, o que veio junto, ou nada.
+
+        Compilar exige Zig, e no Windows isso exige WSL — o que transforma
+        "baixei e instalei" em "instale uma distribuição Linux primeiro" para
+        quem só quer scrobblar. Por isso o repositório traz os dois programas
+        já compilados para o MIPS do R1, em bin/.
+
+        Um binário compilado nesta máquina tem preferência: quem mexeu no
+        código quer o dele, não o que veio na caixa. E o que for usado passa
+        pela mesma checagem de ELF de sempre — nada entra no aparelho sem ser
+        conferido, tenha vindo de onde tiver vindo.
+        """
+        _fontes, _daemon, saida_dir, _col = self._caminhos()
+        compilado = os.path.join(saida_dir, nome)
+        if os.path.isfile(compilado):
+            return compilado
+        junto = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "bin", nome)
+        if os.path.isfile(junto):
+            CC.conferir(junto, self.log, rotulo=rotulo)
+            return junto
+        # Nem um nem outro: compila, que é o caminho de quem tem Zig.
+        CC.compilar(self.cfg.runner, self.log,
+                    os.path.join(_fontes, fonte), compilado,
+                    zig_dir=self._zig_dir(), rotulo=rotulo)
+        return compilado
+
     def _compilar(self) -> None:
         fontes, _daemon, saida_dir, _col = self._caminhos()
         runner, log = self.cfg.runner, self.log
@@ -678,10 +706,7 @@ class Painel(ttk.Frame):
         def work():
             adb.start_server()
             adb.require_device()
-            if not os.path.isfile(remetente):
-                CC.compilar(runner, log, os.path.join(fontes, "r1send.c"),
-                            remetente, zig_dir=self._zig_dir(),
-                            rotulo="r1send")
+            remetente_usar = self._programa("r1send", "r1send.c", "r1send")
 
             # Sem certificados o envio ficaria adiado para sempre. Em vez de
             # instalar e deixar o usuário descobrir isso depois, o pacote é
@@ -703,7 +728,7 @@ class Painel(ttk.Frame):
                                  d, tot, t("progress.certificates"))))
 
             AP.instalar_envio(adb, log,
-                              remetente_local=remetente,
+                              remetente_local=remetente_usar,
                               curl_local=self._curl_mipsel(),
                               cacert_local=local_ca,
                               session_key=chave,
@@ -775,10 +800,8 @@ class Painel(ttk.Frame):
         def work():
             adb.start_server()
             adb.require_device()
-            if not os.path.isfile(saida):
-                CC.compilar(runner, log, os.path.join(fontes, "collector.c"),
-                            saida, zig_dir=self._zig_dir(), rotulo="r1collect")
-            AP.instalar(adb, log, saida, daemon, rapido=rapido, lento=lento,
+            coletor = self._programa("r1collect", "collector.c", "r1collect")
+            AP.instalar(adb, log, coletor, daemon, rapido=rapido, lento=lento,
                         agora=quer_agora, iniciar_no_boot=True)
             AP.iniciar_agora(adb, log)
             return AP.situacao(adb)

@@ -19,6 +19,7 @@ SUITE = [
     ("comandos do init.sh",          "t_aparelho.py",    300),
     ("API de aparelho (adb falso)",  "t_adbapi.py",      180),
     ("conferencia do binario",       "t_conferir.py",    300),
+    ("binarios do repositorio",      "t_bin.py",          60),
     ("janela do scrobbler",          "t_janela.py",      600),
     ("idiomas e catalogo",           "t_idioma.py",      120),
 ]

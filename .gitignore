@@ -4,7 +4,9 @@ __pycache__/
 .venv/
 venv/
 
-# Nada de credenciais nem de binários compilados no repositório.
+# Nada de credenciais nem de artefatos de trabalho no repositório. Os dois
+# programas do aparelho são a exceção deliberada: eles vão versionados em
+# r1lastfm/bin/ para que instalar não exija WSL. Ver o README de lá.
 config.json
 *.log
 trabalho/
