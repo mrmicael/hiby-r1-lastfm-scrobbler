@@ -30,8 +30,8 @@ aparelho, que anota o que você ouve — inclusive offline, no avião, no carro 
 e manda tudo para o Last.fm depois. Se o WiFi do R1 já estiver ligado, ele
 manda sozinho, sem PC nenhum no meio.
 
-Funciona no **HiBy R1 comum** (Ingenic X1600, MIPS32 little-endian, firmware de
-fábrica com ADB).
+Funciona no **HiBy R1 comum** (Ingenic X1600, MIPS32 little-endian, firmware
+de fábrica 1.6 com ADB).
 
 ```bash
 python r1lastfm.py
