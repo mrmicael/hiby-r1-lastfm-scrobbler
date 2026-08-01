@@ -31,7 +31,7 @@ all to Last.fm afterwards. If the R1's Wi-Fi happens to be on, it sends by
 itself, with no PC in the loop.
 
 Works on the **plain HiBy R1** (Ingenic X1600, MIPS32 little-endian, stock
-firmware with ADB).
+firmware 1.6 with ADB).
 
 ```bash
 python r1lastfm.py
