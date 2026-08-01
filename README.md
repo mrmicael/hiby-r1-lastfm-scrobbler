@@ -151,6 +151,52 @@ Zig itself, verifying the SHA256 published by ziglang.org. Without it,
 everything else works: it collects offline and sends over the cable.
 
 <details>
+<summary><b>Installing Python (with Tkinter)</b></summary>
+
+Tkinter is the graphical toolkit this program's window is built on. It comes
+with Python, but on some systems it is a separate package — which is why it is
+called out here instead of being assumed.
+
+**Windows** — get the installer from
+[python.org/downloads](https://www.python.org/downloads/). Two boxes matter:
+
+* tick **Add python.exe to PATH** on the first screen;
+* leave **tcl/tk and IDLE** checked under *Optional Features* — that is Tkinter.
+
+**macOS** — the installer from
+[python.org/downloads](https://www.python.org/downloads/) ships a working Tk
+and is the easy path. If you prefer Homebrew, Tkinter is a separate formula:
+
+```sh
+brew install python python-tk
+```
+
+**Linux** — Tkinter is almost always a separate package:
+
+```sh
+sudo apt install python3 python3-tk        # Debian, Ubuntu, Mint
+sudo dnf install python3 python3-tkinter   # Fedora
+sudo pacman -S python tk                   # Arch
+sudo zypper install python3-tk             # openSUSE
+```
+
+**Check that it worked:**
+
+```sh
+python -c "import tkinter; print('Tkinter', tkinter.TkVersion)"
+```
+
+A version number means you are set. `ModuleNotFoundError: No module named
+'tkinter'` means Python is installed but the Tk package is not — install it
+with the line for your system above. `python r1lastfm.py --check` tells you
+the same thing in plainer words, along with everything else it needs.
+
+> On Linux, `python` may not exist while `python3` does. Use `python3` in both
+> commands if that is your case.
+
+</details>
+
+<details>
 <summary><b>Installing adb</b></summary>
 
 Download the Android Platform Tools for your system:
