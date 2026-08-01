@@ -1,0 +1,4 @@
+# O daemon e os scripts rodam num busybox que trata \r como parte do comando:
+# um checkout com CRLF dá "Illegal option -" e ninguém entende por quê.
+* text=auto eol=lf
+*.png binary

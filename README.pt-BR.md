@@ -1,0 +1,321 @@
+# Scrobbler do Last.fm para o HiBy R1
+
+*[Read in English](README.md)*
+
+O R1 não tem scrobbling. Este programa põe um coletor minúsculo dentro do
+aparelho, que anota o que você ouve — inclusive offline, no avião, no carro —
+e manda tudo para o Last.fm depois. Se o WiFi do R1 já estiver ligado, ele
+manda sozinho, sem PC nenhum no meio.
+
+Funciona no **HiBy R1 comum** (Ingenic X1600, MIPS32 little-endian, firmware de
+fábrica com ADB). Não precisa de root, não mexe no firmware, e não escreve no
+banco de dados do player em momento nenhum.
+
+```bash
+python r1lastfm.py
+```
+
+<p align="center">
+  <img src="docs/janela-pt.png" width="800"
+       alt="A janela do programa: a explicação de como funciona e o cartão da chave de API do Last.fm">
+</p>
+
+Uma janela só, seis cartões, de cima para baixo. Nada escondido em menu, e
+cada cartão diz o que vai fazer antes de fazer.
+
+<p align="center">
+  <img src="docs/janela-aparelho.png" width="800"
+       alt="O cartão do aparelho: coletor instalado e rodando, 57 execuções anotadas, com os intervalos">
+</p>
+
+A interface está em **inglês e português**, inglês por padrão, e dá para trocar
+a qualquer momento no canto inferior direito da janela.
+
+---
+
+## O que ele faz
+
+* **Scrobbla o Tidal também.** Faixas transmitidas nunca entram no banco
+  local do player, e é por isso que a maioria dos scrobblers de R1 simplesmente
+  não as enxerga. Este lê o id da faixa que o player deixa no aparelho e
+  pergunta os dados à própria API do Tidal, com o token que já está lá.
+* **Anota offline.** Você pode passar a viagem inteira sem rede: o que tocou
+  fica guardado no aparelho e vai embora quando houver conexão.
+* **Manda sozinho pelo WiFi.** De doze em doze minutos o R1 olha se já existe
+  rota para fora. Se existir, envia. Ele **nunca liga o rádio por conta
+  própria** — quem decide isso é você.
+* **Manda pelo cabo também.** Para quem nunca usa o WiFi do aparelho: plugue,
+  clique em enviar, pronto. Os dois caminhos convivem sem duplicar nada.
+* **“Tocando agora”, ao vivo.** A faixa em reprodução aparece pulsando no seu
+  perfil, se você quiser.
+* **Aplica as regras do próprio Last.fm** para o que vale: metade da faixa, ou
+  quatro minutos. Faixa pulada no meio não entra.
+* **Envia uns 30 segundos depois** de a faixa acabar, e não num relógio de
+  doze minutos.
+* **Grava um registro e uma planilha no cartão**, em `<cartao>/r1lastfm/`:
+  `r1lastfm.log` e `scrobbles.csv`. Tire o cartão, abra o CSV numa planilha —
+  sem ADB, sem este programa, sem nada.
+
+## O que ele custa de bateria
+
+Medido no aparelho, não estimado:
+
+| | custo |
+|---|---|
+| coletor parado | 1 ms de processador por minuto — 0,0017% do tempo, **zero processos filhos** |
+| coletor tocando | uma volta a cada 15 s, mesmo 1 ms por volta |
+| memória | 880 kB de RSS |
+| um envio pelo WiFi | ~0,1% de bateria |
+| “tocando agora” | 10 ms por detecção; 2,4 s de processador por **hora** |
+
+O que pesa de verdade é ter o WiFi ligado — o rádio consome 50-150 mW contra os
+~260 mW do aparelho tocando, o que tira 20-40% da autonomia. Essa conta é do
+WiFi, não deste programa: com o rádio desligado, o custo do coletor é
+indistinguível de zero.
+
+## Passo a passo
+
+### 0. O que você precisa
+
+| | |
+|---|---|
+| **Python 3.9+ com Tkinter** | só a biblioteca padrão; nada de `pip install` |
+| **adb** (Android Platform Tools) | é como o programa fala com o R1 |
+| **WSL + Zig** | *só* para o envio automático pelo WiFi. O programa baixa e instala o Zig sozinho, conferindo o SHA256 publicado pelo ziglang.org |
+
+Sem WSL/Zig o programa continua útil: ele coleta e envia pelo cabo.
+
+<details>
+<summary><b>Instalando o adb</b></summary>
+
+Baixe o Android Platform Tools do seu sistema:
+<https://developer.android.com/tools/releases/platform-tools>
+
+* **Windows** — extraia em `C:\platform-tools`. Esse é um dos lugares onde este
+  programa procura, então não precisa de mais nada.
+* **macOS** — `brew install android-platform-tools`.
+* **Linux** — `sudo apt install adb` (ou o equivalente da sua distribuição).
+
+Confira com `python r1lastfm.py --check`.
+</details>
+
+<details>
+<summary><b>Instalando o WSL (Windows, opcional)</b></summary>
+
+Só faz falta para o envio pelo WiFi e o “tocando agora”. Num PowerShell como
+administrador:
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Reinicie e abra o Ubuntu uma vez, para ele terminar de se configurar. Não
+precisa instalar o Zig — o programa faz isso quando você mandar compilar.
+</details>
+
+### 1. Registre a sua própria chave de API do Last.fm
+
+Vá em <https://www.last.fm/api/account/create> (o programa tem um botão que
+abre a página). Preencha um nome — algo como *meu scrobbler do R1* — e a
+descrição. O resto pode ficar em branco. Envie, e copie os dois valores que
+aparecem: **API key** e **Shared secret**.
+
+Cole os dois no cartão 1 e clique em *Guardar*.
+
+> **Por que a sua chave, e não uma que já viesse no programa?** Um segredo
+> compartilhado publicado num repositório público não é segredo. Qualquer um
+> poderia se passar pelo aplicativo, e o Last.fm o revogaria assim que
+> percebesse — quebrando para todo mundo. Registrar leva um minuto e a chave é
+> sua.
+
+A chave fica só no seu computador, no `config.json`. Ela não é a sua senha, e o
+programa nunca vê a sua senha em momento nenhum.
+
+### 2. Autorize a sua conta
+
+Clique em *Autorizar no navegador*, no cartão 2. Abre uma página do próprio
+Last.fm, onde você aprova o acesso. Volte e clique em *Já autorizei — concluir*.
+
+O que volta é uma **chave de sessão**, não a sua senha. Dá para revogá-la a
+qualquer momento em *last.fm → Configurações → Aplicativos*.
+
+### 3. Ligue o R1 e instale o coletor
+
+No aparelho: **System → USB working mode → Device**. Depois plugue o cabo.
+
+> ADB e USB-DAC dividem o mesmo controlador USB e são mutuamente exclusivos: com
+> o modo em DAC, o `adbd` nem sobe, e a lista de aparelhos fica vazia
+> igualzinho a um cabo ruim. Confira também se o cabo transmite dados — muitos
+> só carregam.
+
+No cartão 3, clique em **Compilar** e depois em **Instalar / atualizar**.
+Compilar leva um ou dois minutos na primeira vez (o programa baixa o Zig se
+precisar).
+
+### 4. Reinicie o R1
+
+O coletor é acrescentado ao `/usr/data/init.sh` para subir junto com o player a
+cada boot. Reinicie uma vez e olhe o cartão 3 — ele deve dizer *“Inicia junto
+com o player.”*
+
+A partir daqui já funciona tudo pelo cabo. **Se você nunca quiser usar WiFi,
+acabou**: ouça música, plugue quando quiser, clique em *Trazer a fila* e
+*Enviar ao Last.fm*.
+
+### 5. (Opcional) Envio automático pelo WiFi
+
+No cartão 4, nesta ordem:
+
+1. **Compilar o curl** — 20 a 30 minutos, uma vez por máquina. Ele baixa as
+   fontes do curl e do Mbed-TLS dos sites oficiais dos dois projetos e compila
+   para o MIPS do R1, no seu computador.
+2. **Baixar certificados** — o pacote raiz que o projeto curl publica. Sem ele o
+   aparelho não tem como conferir com quem está falando.
+3. **Ativar envio pelo WiFi** — é o que leva a chave de sessão e os dois
+   programas para o aparelho.
+4. **Enviar agora (teste)** — prova que funciona sem esperar os doze minutos.
+
+Marque *Mostrar “tocando agora” no meu perfil* se quiser o live scrobbling. Ele
+é aplicado na hora, sem reinstalar nada.
+
+### Conferir sem abrir a janela
+
+```bash
+python r1lastfm.py --check
+```
+
+E para ver tudo o que ele *faria*, sem tocar no aparelho:
+
+```bash
+python r1lastfm.py --dry-run
+```
+
+`--lang pt` / `--lang en` força um idioma só naquela execução, sem mudar a sua
+preferência.
+
+## Como funciona por dentro
+
+O R1 mantém um SQLite em `/usr/data/usrlocal_media.db` com uma tabela
+`HISTORY_TABLE`. Ela diz **o que** tocou e **em que ordem**, mas não guarda a
+hora de nada — e é a hora que o Last.fm precisa.
+
+Então o coletor (`collector.c`, um leitor de SQLite escrito à mão, ~770 linhas,
+sem libsqlite) olha o banco de tempos em tempos e anota o **relógio do
+aparelho** no momento em que cada linha nova aparece. O intervalo entre duas
+linhas dá o tempo que você ouviu da primeira. A duração de cada faixa também não
+está no banco: é calculada de `size * 8 / bit_rate`, o que bateu com o tempo
+real dentro de meio segundo nos testes.
+
+Detalhes que só aparecem mexendo no aparelho de verdade, e que estão
+documentados nos comentários do código:
+
+* o player grava a linha do histórico **quando a faixa termina**, não quando
+  começa — medido em 194 s numa faixa de 3min14;
+* todo valor TEXT no banco carrega um byte NUL no fim (o player grava strings
+  em C);
+* o `most_played.db` do cartão está corrompido de fábrica (uma linha mistura o
+  nome de uma faixa com o caminho de outra); só o mtime dele é usado, nunca o
+  conteúdo;
+* o banco é aberto **somente para leitura, e numa cópia** — o player nunca vê
+  este programa.
+
+O envio de dentro do aparelho é feito pelo `r1send.c`, que monta e assina o lote
+(MD5 sobre os parâmetros ordenados + segredo, como a API do Last.fm exige) e
+chama um `curl` estático. O daemon (`r1scrobbled.sh`) é ash de busybox e dorme
+num `read -t` sobre um fifo, que custa 34× menos que chamar `sleep` — é por isso
+que ele não cria processo nenhum enquanto espera.
+
+## Onde ficam as coisas
+
+**Neste computador**, em `%LOCALAPPDATA%\R1LastFm` (Windows),
+`~/Library/Application Support/R1LastFm` (macOS) ou `~/.local/share/r1-lastfm`
+(Linux):
+
+* `config.json` — sua chave de API, a chave de sessão do Last.fm e o idioma;
+* `registros/` — o log completo de cada sessão, com os comandos exatos, de forma
+  que qualquer etapa possa ser refeita à mão;
+* `trabalho/` — os binários compilados.
+
+**No aparelho**, em `/usr/data/scrobble`: a fila, a lista do que já foi enviado,
+e (se você ativar o envio pelo WiFi) a chave de sessão. Ficam lá de propósito —
+assim usar o programa de outro computador não reenvia nem perde nada.
+
+## Segurança, sem enfeite
+
+* O programa **nunca vê a sua senha**. A autorização acontece numa página do
+  próprio Last.fm; o que volta é uma chave de sessão, revogável quando você
+  quiser em *last.fm → Configurações → Aplicativos*.
+* Se você ativar o envio automático, essa chave é **gravada no aparelho**, em
+  `/usr/data/scrobble/sk` com permissão 600. Ela não dá acesso à sua senha, mas
+  **quem tiver ADB no aparelho consegue lê-la**. Se isso incomodar, use só o
+  envio pelo cabo: funciona igual, e nada sai do PC.
+* Sem o pacote de certificados no aparelho, o daemon **se recusa a enviar**, em
+  vez de entregar a chave sem conferir com quem está falando.
+* Nenhum binário é baixado pronto. O `curl` é compilado na sua máquina, a partir
+  das fontes oficiais do curl e do Mbed-TLS, e o que sair ainda passa por uma
+  checagem de ELF antes de ir para o aparelho.
+
+## Desinstalar
+
+O botão **Remover**, no cartão 3, tira tudo: os programas, o bloco do `init.sh`
+e (se você mandar) a fila. Nada fora de `/usr/data/scrobble` e do
+`/usr/data/init.sh` é tocado em momento nenhum.
+
+## Não funcionou?
+
+O log da sessão tem o comando exato de cada passo — é o primeiro lugar para
+olhar, e ele está desenhado para poder ser refeito à mão linha por linha. Alguns
+casos comuns:
+
+* **“não aparece nada no Last.fm depois de reiniciar”** — confira no cartão 3 se
+  diz *Inicia junto com o player*. Se o seu `init.sh` tiver um `exit` antes do
+  bloco do scrobbler, ele nunca roda; o programa insere o bloco **antes** do
+  primeiro `exit` justamente por isso.
+* **“o envio automático não manda”** — o R1 não liga o WiFi sozinho. Ligue-o no
+  aparelho e espere até doze minutos, ou use *Enviar agora (teste)*.
+* **“scrobbles antigos não sobem”** — o Last.fm recusa timestamps de mais de 14
+  dias. Nada a fazer.
+
+## Rodando os testes
+
+```bash
+python testes/t_scrobble_all.py
+```
+
+Doze módulos: o leitor de SQLite em C contra o SQLite de verdade, o daemon
+rodando sob busybox ash, a reconstrução da fila, a assinatura, o envio
+automático, o “tocando agora”, as edições no `init.sh`, a API de aparelho contra
+um adb falso, a conferência de ELF, a própria janela, e o catálogo de traduções.
+
+Os testes que falam com a API real do Last.fm são pulados a menos que você passe
+a sua chave:
+
+```bash
+LASTFM_API_KEY=... LASTFM_API_SECRET=... python testes/t_scrobble_all.py
+```
+
+## Traduzindo
+
+Toda frase que o usuário vê mora em [`r1lastfm/textos.py`](r1lastfm/textos.py),
+uma chave por mensagem, uma entrada por idioma. Para acrescentar um idioma,
+ponha o código dele em `IDIOMAS`, em
+[`r1lastfm/idioma.py`](r1lastfm/idioma.py), e uma entrada correspondente em
+cada chave. Depois rode:
+
+```bash
+python testes/t_idioma.py
+```
+
+Ele varre o código-fonte inteiro, junta toda chave que alguém pede, e diz
+exatamente quais faltaram — inclusive aquelas cujos `{campos}` não batem com o
+original em inglês.
+
+## Créditos
+
+Escrito com [Claude Code](https://claude.com/claude-code) (Anthropic).
+
+O formato de arquivo do SQLite, o comportamento do `HISTORY_TABLE` do R1 e os
+números de bateria acima foram todos levantados no aparelho, medindo — não
+estimando.
+
+Licença MIT, em [LICENSE](LICENSE).

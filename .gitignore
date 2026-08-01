@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Nada de credenciais nem de binários compilados no repositório.
+config.json
+*.log
+trabalho/
+build-curl/
+curl-mipsel/
+cacert.pem
+
+# O que os testes geram enquanto rodam. Os logs de sessão trazem o caminho
+# da máquina de quem rodou, então não têm nada que fazer num repositório.
+testes/lastfm/
+testes/adbapi/
+testes/conferir/
+testes/t_janela_dados/
+testes/t_sw_data/
