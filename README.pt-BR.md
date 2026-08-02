@@ -264,11 +264,39 @@ vão para o aparelho já vêm compilados.
 do aparelho por conta própria. Se você fizer isso, o seu é usado no lugar do
 que veio junto. Precisa do Zig, que o programa instala sozinho.)*
 
-### 4. Reinicie o R1
+### 4. Reinicie o R1 — e leia isto se ele não voltar sozinho
 
-O coletor é acrescentado ao `/usr/data/init.sh` para subir junto com o player a
-cada boot. Reinicie uma vez e olhe o cartão 3 — ele deve dizer *“Inicia junto
-com o player.”*
+O coletor é acrescentado ao `/usr/data/init.sh`. Reinicie uma vez e olhe o
+cartão 3.
+
+**No firmware de fábrica da HiBy ele vai dizer “⚠ este firmware não o inicia no
+boot”, e isso não é erro seu.** Nada no firmware original executa o
+`/usr/data/init.sh`. Isto foi conferido no pacote 1.6 de verdade, não deduzido:
+o `/usr/bin/hiby_player.sh` de lá tem quatorze linhas e não contém a string
+`/usr/data` em lugar nenhum, e nenhum outro script, arquivo de init ou binário
+daquela imagem executa coisa alguma vinda de área gravável. O `/` é montado
+`squashfs (ro)`, então também não dá para remendar com o aparelho ligado.
+
+O `init.sh` é uma convenção que os firmwares **modificados** criaram — o mod de
+podcast traz um `hiby_player.sh` remendado que o executa. Se você tem um
+desses, o cartão 3 diz *“Inicia junto com o player”* e nada disto se aplica.
+
+Se não tem, há dois caminhos, e todo o resto funciona igual nos dois:
+
+* Aperte **Iniciar agora** no cartão 3 sempre que plugar o cabo. Daí ele segue
+  rodando — offline, sem cabo — até você desligar o player. O equivalente à
+  mão:
+
+  ```
+  adb shell "setsid /usr/data/scrobble/r1scrobbled </dev/null >/dev/null 2>&1 &"
+  ```
+
+* Ou instale um firmware remendado que tenha o gancho, e tenha o boot.
+
+O que você ouviu com ele parado **não** se perde: o que é lido é o histórico do
+próprio player, então o coletor pega tudo assim que sobe. Ele só não tem como
+saber as horas exatas, e por isso as reconstrói encostadas uma na outra,
+terminando no momento em que acordou.
 
 A partir daqui já funciona tudo pelo cabo. **Se você nunca quiser usar WiFi,
 acabou**: ouça música, plugue quando quiser, clique em *Trazer a fila* e
@@ -379,10 +407,21 @@ O log da sessão tem o comando exato de cada passo — é o primeiro lugar para
 olhar, e ele está desenhado para poder ser refeito à mão linha por linha. Alguns
 casos comuns:
 
-* **“não aparece nada no Last.fm depois de reiniciar”** — confira no cartão 3 se
-  diz *Inicia junto com o player*. Se o seu `init.sh` tiver um `exit` antes do
-  bloco do scrobbler, ele nunca roda; o programa insere o bloco **antes** do
-  primeiro `exit` justamente por isso.
+* **“diz instalado mas não está rodando / nunca inicia sozinho”** — no firmware
+  de fábrica ele não tem como. Ver o [passo 4](#4-reinicie-o-r1--e-leia-isto-se-ele-não-voltar-sozinho):
+  nada na imagem original executa o `/usr/data/init.sh`. O cartão 3 avisa
+  quando é o seu caso. Use **Iniciar agora**, ou um firmware remendado.
+* **“não aparece nada no Last.fm depois de reiniciar”** — se o cartão 3 *diz*
+  *Inicia junto com o player*, então o seu `init.sh` pode ter um `exit` antes do
+  bloco do scrobbler; o programa insere o bloco **antes** do primeiro `exit`
+  justamente por isso.
+* **“ouvi um álbum inteiro e registrou 0 segundos”** / **“contou como ouvida
+  inteira assim que começou”** — corrigido na versão 7. O histórico do player
+  não guarda hora nenhuma, então todas as faixas que o coletor achava numa
+  varredura levavam o mesmo segundo: da segunda em diante saía com tempo ouvido
+  zero, e a primeira levava crédito por todo o buraco desde a partida. Agora o
+  coletor marca o que já estava no banco quando acordou, e essas faixas recebem
+  horas reais. Atualize o aparelho (cartão 3) para receber a correção.
 * **“o envio automático não manda”** — o R1 não liga o WiFi sozinho. Ligue-o no
   aparelho e espere até doze minutos, ou use *Enviar agora (teste)*.
 * **“scrobbles antigos não sobem”** — o Last.fm recusa timestamps de mais de 14

@@ -191,9 +191,15 @@ class Painel(ttk.Frame):
                 ("btn.check", self._ver_aparelho, "TButton"),
                 ("btn.build", self._compilar, "TButton"),
                 ("btn.install", self._instalar, "Accent.TButton"),
+                ("btn.iniciar", self._iniciar, "TButton"),
                 ("btn.remove", self._remover, "TButton")):
             ttk.Button(linha, text=t(chave), command=cb, style=estilo).pack(
                 side="left", padx=(0, 8))
+        # O aviso do boot fica num rótulo próprio e em destaque, e não junto
+        # da linha de estado: é a diferença entre o programa funcionar e não
+        # funcionar, e precisa caber a explicação inteira mais o comando.
+        self.lbl_boot = ttk.Label(c, text="", style="CardWarn.TLabel",
+                                  wraplength=880, justify="left")
         self.lbl_versao = ttk.Label(c, text="", style="CardMuted.TLabel",
                                     wraplength=880, justify="left")
         self.lbl_versao.pack(anchor="w", pady=(8, 0))
@@ -406,12 +412,21 @@ class Painel(ttk.Frame):
             partes = [t("dev.installed") if s.instalado else t("dev.not_installed")]
             if s.instalado:
                 partes.append(t("dev.running") if s.rodando else t("dev.stopped"))
-                partes.append(t("dev.boots") if s.no_init else t("dev.no_boot"))
+                # Não adianta dizer "inicia junto com o player" quando nada
+                # neste firmware executa o init.sh. Era o caso de quem
+                # instalou num R1 de fábrica: a tela dizia que estava tudo
+                # certo e o coletor nunca subia, sem nenhuma pista do porquê.
+                if s.init_roda is False:
+                    partes.append(t("dev.sem_boot"))
+                else:
+                    partes.append(t("dev.boots") if s.no_init
+                                  else t("dev.no_boot"))
                 if s.espera_sem_fork is False:
                     partes.append(t("dev.no_read_t"))
             partes.append(t("dev.counts", execucoes=s.execucoes,
                             pendentes=s.pendentes))
             self.lbl_dispositivo.configure(text="  ".join(partes))
+            self._render_boot(s)
             self._render_versao(s)
             self.var_agora.set(s.tocando_agora)
             self._render_wifi(s)
@@ -422,6 +437,20 @@ class Painel(ttk.Frame):
 
         self.app.run_async(work, on_done=done, on_error=falhou,
                            busy_text=t("busy.device"))
+
+    def _render_boot(self, s: AP.Situacao) -> None:
+        """Mostra (ou esconde) o aviso de que o firmware não inicia nada.
+
+        Só aparece quando há certeza: instalado, com a linha no init.sh, e o
+        lançador do player lido sem citar o init.sh. Se não deu para ler o
+        lançador (`init_roda is None`), fica calado — um aviso errado custa
+        mais caro do que aviso nenhum.
+        """
+        if s.instalado and s.no_init and s.init_roda is False:
+            self.lbl_boot.configure(text=t("dev.sem_boot.ajuda"))
+            self.lbl_boot.pack(anchor="w", pady=(10, 0), before=self.lbl_versao)
+        else:
+            self.lbl_boot.pack_forget()
 
     def _render_versao(self, s: AP.Situacao) -> None:
         if not s.instalado:
@@ -812,6 +841,28 @@ class Painel(ttk.Frame):
 
         self.app.run_async(work, on_done=done, on_error=self._erro,
                            busy_text=t("busy.install"))
+
+    def _iniciar(self) -> None:
+        """Sobe o coletor agora, sem reinstalar nada.
+
+        Existe porque num firmware de fábrica ele não sobe sozinho: nada ali
+        executa o /usr/data/init.sh. Com este botão a pessoa pluga o cabo,
+        clica, e o coletor roda até o próximo desligamento.
+        """
+        adb = self._adb()
+        if adb is None:
+            return
+        log = self.log
+
+        def work():
+            adb.start_server()
+            adb.require_device()
+            AP.iniciar_agora(adb, log)
+            return AP.situacao(adb)
+
+        self.app.run_async(work, on_done=lambda _s: self._ver_aparelho(),
+                           on_error=self._erro,
+                           busy_text=t("busy.iniciar"))
 
     def _remover(self) -> None:
         adb = self._adb()

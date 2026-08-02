@@ -40,13 +40,24 @@ VERSAO_ARQ = DIR + "/versao"
 TRAVA = "/tmp/.r1sc.rodando"
 TRAVA_ANTIGA = DIR + "/.rodando"
 INIT = "/usr/data/init.sh"
+# Quem executa o init.sh — e o motivo de tudo isto existir.
+#
+# Nada no firmware DE FÁBRICA roda /usr/data/init.sh. Quem o roda é uma versão
+# remendada do lançador do player, que outros mods do R1 instalam ao aplicar o
+# patch de firmware. Sem esse patch, pôr uma linha no init.sh não inicia coisa
+# alguma — o coletor fica instalado e nunca sobe.
+#
+# Isso passou meses despercebido porque o aparelho onde tudo foi desenvolvido
+# já tinha outro mod instalado. Quem instalou num R1 de fábrica viu "Coletor
+# instalado. Parado." e não tinha como adivinhar por quê.
+LANCADOR = "/usr/bin/hiby_player.sh"
 
 # Sobe a cada mudança que valha reinstalar no aparelho. A tela compara com o
 # que está gravado lá e só oferece a atualização quando há diferença.
-VERSAO = 6
+VERSAO = 7
 # As versões que existem. O que cada uma trouxe está no catálogo de textos,
 # sob "novidade.<n>", porque isso aparece na tela e tem de estar traduzido.
-NOVIDADES = (6, 5, 4, 3, 2, 1)
+NOVIDADES = (7, 6, 5, 4, 3, 2, 1)
 
 
 def novidade(versao: int) -> str:
@@ -81,6 +92,9 @@ class Situacao:
     wifi_agora: bool = False
     versao: int = 0
     tocando_agora: bool = False
+    # O firmware deste aparelho chega a executar o /usr/data/init.sh?
+    # None = não deu para saber (lançador ausente ou ilegível).
+    init_roda: bool | None = None
     ultimo_envio: str = ""
     detalhe: str = ""
 
@@ -110,6 +124,10 @@ def situacao(adb: Adb) -> Situacao:
         f"echo ROWID=$(cat {ESTADO} 2>/dev/null || echo 0); "
         f"echo VERSAO=$(cat {VERSAO_ARQ} 2>/dev/null || echo 0); "
         f"grep -q '^AGORA=1' {CONF} 2>/dev/null && echo NP=1 || echo NP=0; "
+        # O lançador cita o init.sh? Se não, ninguém nunca vai executá-lo.
+        f"if [ -r {LANCADOR} ]; then "
+        f"  grep -q '{INIT}' {LANCADOR} && echo SUP=1 || echo SUP=0; "
+        f"else echo SUP=?; fi; "
         # rota default: destino 00000000 na segunda coluna do /proc/net/route
         f"awk '$2==\"00000000\"{{achou=1}} END{{print \"WIFI=\" (achou?1:0)}}' "
         f"/proc/net/route 2>/dev/null || echo WIFI=0; "
@@ -151,6 +169,8 @@ def situacao(adb: Adb) -> Situacao:
         wifi_agora=vals.get("WIFI") == "1",
         versao=num("VERSAO"),
         tocando_agora=vals.get("NP") == "1",
+        init_roda=(True if vals.get("SUP") == "1"
+                   else False if vals.get("SUP") == "0" else None),
         ultimo_envio=vals.get("ULTIMO", "").strip(),
         detalhe=res.stdout.strip(),
     )

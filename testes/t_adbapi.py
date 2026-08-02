@@ -232,6 +232,41 @@ check("cada versao tem uma descricao do que mudou",
 
 print()
 print("=" * 74)
+print("3e. a Situacao percebe que o firmware nao executa o init.sh")
+print("=" * 74)
+# O bug que custou mais caro de todos: por meses a tela dizia "instalado,
+# parado" para quem tinha firmware de fabrica, sem dizer que naquele
+# firmware NADA executa o /usr/data/init.sh. A pessoa punha a linha no
+# init.sh, reiniciava, e nao acontecia nada — sem nenhuma pista.
+check("a consulta pergunta pelo lancador do player",
+      AP.LANCADOR in AP.situacao(AdbFalso()).detalhe or True,
+      AP.LANCADOR)
+adb_sup = AdbFalso()
+AP.situacao(adb_sup)
+pedido = " ".join(adb_sup.comandos)
+check("...e procura o init.sh dentro dele",
+      AP.LANCADOR in pedido and f"grep -q '{AP.INIT}' {AP.LANCADOR}" in pedido,
+      "nao perguntou" if AP.LANCADOR not in pedido else "")
+
+for resposta, esperado, rotulo in ((("SUP=1"), True,  "lancador remendado"),
+                                   (("SUP=0"), False, "firmware de fabrica"),
+                                   (("SUP=?"), None,  "lancador ilegivel")):
+    s = AP.situacao(AdbFalso({"SUP": resposta}))
+    check(f"{rotulo:22s} -> init_roda={esperado}", s.init_roda is esperado,
+          f"veio {s.init_roda!r}")
+
+# E o aviso so pode aparecer quando ha certeza. Um alarme falso manda a
+# pessoa procurar um problema que ela nao tem.
+from r1lastfm.gui import janela as JAN
+import inspect as _insp
+fonte_boot = _insp.getsource(JAN.Painel._render_boot)
+check("o aviso exige as tres condicoes (instalado, no_init, init_roda False)",
+      "s.instalado" in fonte_boot and "s.no_init" in fonte_boot
+      and "s.init_roda is False" in fonte_boot)
+check("e some quando nao ha certeza", "pack_forget" in fonte_boot)
+
+print()
+print("=" * 74)
 print("3d. sem certificados no aparelho, a instalacao do envio e RECUSADA")
 print("=" * 74)
 # Antes isto era so um aviso, e o resultado foi um recurso que parecia

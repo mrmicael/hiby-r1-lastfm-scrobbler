@@ -265,11 +265,40 @@ the device ship prebuilt.
 two device programs themselves. If you do, yours is used instead of the ones
 that shipped. It needs Zig, which the program installs on its own.)*
 
-### 4. Reboot the R1
+### 4. Reboot the R1 — and read this if it does not come back up
 
-The collector is added to `/usr/data/init.sh` so it comes up with the player at
-every boot. Reboot once and check card 3 — it should say *“Starts together with
-the player.”*
+The collector is added to `/usr/data/init.sh`. Reboot once and look at card 3.
+
+**On stock HiBy firmware it will say “⚠ this firmware will not start it at
+boot”, and that is not something you did wrong.** Nothing in the factory
+firmware ever executes `/usr/data/init.sh`. I checked this against the real
+1.6 update package rather than guessing: its `/usr/bin/hiby_player.sh` is
+fourteen lines long and does not contain the string `/usr/data` at all, and no
+other script, init file or binary in that image runs anything from writable
+storage. `/` is mounted `squashfs (ro)`, so it cannot be patched at runtime
+either.
+
+`init.sh` is a convention that **modded** firmwares introduced — the podcast
+mod ships a patched `hiby_player.sh` that runs it. If you have one of those,
+card 3 says *“Starts together with the player”* and you can ignore all of this.
+
+If you do not, you have two options, and everything else works normally either
+way:
+
+* Press **Start now** in card 3 whenever you plug the cable in. The collector
+  then keeps running — offline, cable unplugged — until you power the player
+  off. Equivalent by hand:
+
+  ```
+  adb shell "setsid /usr/data/scrobble/r1scrobbled </dev/null >/dev/null 2>&1 &"
+  ```
+
+* Or install a firmware patch that adds the hook, and get it at boot.
+
+Anything you listened to while it was stopped is **not** lost: the player's own
+history database is what gets read, so the collector picks it all up the moment
+it starts. It just cannot know the exact clock times, so it reconstructs them
+back-to-back ending at the moment it woke up.
 
 At this point everything already works over the cable. **If you never want to
 use Wi-Fi, you are done**: listen to music, plug in when you feel like it, click
@@ -381,10 +410,22 @@ The session log has the exact command for every step — it is the first place t
 look, and it is designed so you can redo it by hand line by line. Some common
 cases:
 
-* **“nothing shows up on Last.fm after a reboot”** — check in card 3 that it
-  says *Starts together with the player*. If your `init.sh` has an `exit` before
-  the scrobbler block, it never runs; the program inserts the block **before**
-  the first `exit` for exactly this reason.
+* **“it says installed but it is not running / it never starts by itself”** —
+  on stock firmware it cannot. See [step 4](#4-reboot-the-r1--and-read-this-if-it-does-not-come-back-up):
+  nothing in the factory image executes `/usr/data/init.sh`. Card 3 tells you
+  when this is your case. Use **Start now**, or a patched firmware.
+* **“nothing shows up on Last.fm after a reboot”** — if card 3 *does* say
+  *Starts together with the player*, then your `init.sh` may have an `exit`
+  before the scrobbler block; the program inserts the block **before** the
+  first `exit` for exactly this reason.
+* **“I listened to a whole album and it logged 0 seconds”** / **“a track counted
+  as fully played the moment it started”** — fixed in version 7. The player's
+  history table stores no timestamps at all, so every track the collector found
+  in one sweep used to get stamped with the same second: the second one onwards
+  came out with a zero-length listen, and the first one got credited against
+  the whole gap since startup. The collector now marks what was already in the
+  database when it woke up, and those tracks get spread over real times instead.
+  Update the device (card 3) to get it.
 * **“automatic sending never sends”** — the R1 does not turn Wi-Fi on by
   itself. Turn it on and wait up to twelve minutes, or use *Send now (test)*.
 * **“old scrobbles do not go up”** — Last.fm refuses timestamps older than 14

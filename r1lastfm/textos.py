@@ -329,6 +329,45 @@ TEXTOS: dict[str, dict[str, str]] = {
         "en": "Starts together with the player.",
         "pt": "Inicia junto com o player.",
     },
+    # O aviso que faltava. Sem ele a tela dizia "instalado / parado" e a
+    # pessoa ficava tentando descobrir o que tinha feito de errado — quando
+    # não era ela: o firmware de fábrica simplesmente não executa o init.sh.
+    "dev.sem_boot": {
+        "en": "⚠ this firmware will not start it at boot",
+        "pt": "⚠ este firmware não o inicia no boot",
+    },
+    "dev.sem_boot.ajuda": {
+        "en": "⚠  Installed, but this firmware will never start it on its own.\n"
+              "Nothing in the stock R1 firmware runs /usr/data/init.sh — that "
+              "file only gets executed if you have a patched firmware (the "
+              "podcast mod ships one). This is not something you did wrong.\n\n"
+              "Everything still works — you just have to start it yourself "
+              "after each reboot. Click “Start now” above with the cable "
+              "plugged in, or run:\n"
+              "    adb shell \"setsid /usr/data/scrobble/r1scrobbled "
+              "</dev/null >/dev/null 2>&1 &\"\n"
+              "Once started it keeps collecting offline, with no cable, until "
+              "you power the player off.",
+        "pt": "⚠  Instalado, mas este firmware nunca vai iniciá-lo sozinho.\n"
+              "Nada no firmware de fábrica do R1 executa o /usr/data/init.sh — "
+              "esse arquivo só roda se você tiver um firmware remendado (o mod "
+              "de podcast traz um). Não foi você que fez algo errado.\n\n"
+              "Tudo funciona do mesmo jeito — só é preciso iniciá-lo à mão "
+              "depois de cada reinício. Clique em “Iniciar agora” aí em cima "
+              "com o cabo plugado, ou rode:\n"
+              "    adb shell \"setsid /usr/data/scrobble/r1scrobbled "
+              "</dev/null >/dev/null 2>&1 &\"\n"
+              "Uma vez iniciado ele segue coletando offline, sem cabo, até "
+              "você desligar o player.",
+    },
+    "btn.iniciar": {
+        "en": "Start now",
+        "pt": "Iniciar agora",
+    },
+    "busy.iniciar": {
+        "en": "Starting the collector…",
+        "pt": "Iniciando o coletor…",
+    },
     "dev.no_boot": {
         "en": "Does NOT start on its own at boot.",
         "pt": "NÃO inicia sozinho no boot.",
@@ -1059,6 +1098,20 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.7": {
+        "en": "an album listened to while the collector was stopped is no "
+              "longer recorded as 0 seconds — the tracks it finds on waking "
+              "up now get spread over real times instead of all sharing the "
+              "second it happened to look; and when the firmware cannot start "
+              "it at boot, the app says so plainly instead of just showing "
+              "“installed, stopped”",
+        "pt": "um álbum ouvido com o coletor parado deixa de ser registrado "
+              "como 0 segundos — as faixas que ele encontra ao acordar passam "
+              "a receber horas reais, em vez de todas dividirem o segundo em "
+              "que ele por acaso olhou; e quando o firmware não consegue "
+              "iniciá-lo no boot, o programa diz isso com todas as letras em "
+              "vez de só mostrar “instalado, parado”",
+    },
     "novidade.6": {
         "en": "Tidal is scrobbled too — streamed tracks never entered the "
               "player's database, so the scrobbler was blind to them; a log "
