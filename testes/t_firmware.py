@@ -99,6 +99,34 @@ check("sem o isoinfo ela nao e pulada, e sim recusada",
 
 print()
 print("=" * 74)
+print("3b. o manifesto e reescrito E conferido")
+print("=" * 74)
+# O ota_update.in e o que o atualizador do aparelho realmente le: ele declara
+# o md5 e o tamanho de cada imagem. Eu trocava o md5 no NOME do arquivo-marca
+# e deixava o manifesto declarando o md5 do rootfs ORIGINAL. O atualizador
+# remontava, comparava, nao fechava, e ficava esperando para sempre.
+#
+# Isso estava escrito no /etc/ota_bin/local_ota_update.sh do proprio firmware.
+# Deduzir o formato pelos nomes dos arquivos em vez de ler o programa que os
+# consome foi o que fez eu passar perto duas vezes sem acertar.
+check("existe a reescrita do manifesto",
+      "def reescrever_manifesto" in fonte)
+check("ela troca img_md5 e img_size",
+      'saida.append(f"img_md5={soma}")' in fonte
+      and 'saida.append(f"img_size={tamanho}")' in fonte)
+check("e so na entrada do rootfs, nao na do kernel",
+      "dentro_do_rootfs" in fonte)
+check("recusa se nao achar a entrada do rootfs",
+      "could not find the rootfs entry" in fonte)
+check("existe a conferencia do manifesto contra os pedacos",
+      "def conferir_manifesto" in fonte)
+check("ela confere kernel E rootfs",
+      '"rootfs" not in declarado or "kernel" not in declarado' in fonte)
+check("e roda sobre o pacote PRONTO, nao sobre o rascunho",
+      "conferir_manifesto(os.path.join(conf" in fonte)
+
+print()
+print("=" * 74)
 print("4. os nomes longos sao conferidos pelos DOIS caminhos")
 print("=" * 74)
 # Nao se sabe por qual dos dois o atualizador le; entao os dois tem de

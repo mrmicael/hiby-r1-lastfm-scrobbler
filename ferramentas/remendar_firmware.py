@@ -224,6 +224,61 @@ def partir(caminho: str, dir_ota: str, base: str) -> None:
         raise Erro(f"{base} came out empty")
 
 
+def reescrever_manifesto(caminho: str, tamanho: int, soma: str) -> str:
+    """Põe o novo md5 e tamanho do rootfs no ota_update.in.
+
+    Este arquivo é o que manda. Foi ele que faltou, e a falta dele prendeu um
+    aparelho na tela de atualização:
+
+        img_type=rootfs
+        img_name=rootfs.squashfs
+        img_size=37507072
+        img_md5=9c8b3a941dc2324ed6a641760928959c
+
+    O atualizador do aparelho lê isto, remonta os pedaços, calcula o md5 e
+    compara. Eu trocava o md5 no NOME do arquivo-marca e deixava o manifesto
+    declarando o md5 do rootfs original — então a conferência dele nunca
+    fechava, e ele ficava esperando por uma imagem que não ia chegar.
+
+    Isso estava escrito no /etc/ota_bin/local_ota_update.sh do próprio
+    firmware o tempo todo. Eu deduzi o formato pelos nomes dos arquivos em vez
+    de ler o programa que os consome, e é exatamente por isso que passei perto
+    sem acertar.
+
+    Só as linhas do rootfs mudam; as do kernel ficam como estão, porque o
+    kernel não é tocado.
+    """
+    with open(caminho, encoding="utf-8", errors="surrogateescape") as fh:
+        linhas = fh.read().splitlines()
+
+    saida: list[str] = []
+    dentro_do_rootfs = False
+    trocou_md5 = trocou_tam = False
+    for linha in linhas:
+        nu = linha.strip()
+        if nu.startswith("img_type="):
+            dentro_do_rootfs = nu.split("=", 1)[1].strip() == "rootfs"
+        if dentro_do_rootfs and nu.startswith("img_md5="):
+            saida.append(f"img_md5={soma}")
+            trocou_md5 = True
+            continue
+        if dentro_do_rootfs and nu.startswith("img_size="):
+            saida.append(f"img_size={tamanho}")
+            trocou_tam = True
+            continue
+        saida.append(linha)
+
+    if not (trocou_md5 and trocou_tam):
+        raise Erro("could not find the rootfs entry in ota_update.in — this "
+                   "package is not shaped the way the updater expects, and "
+                   "writing it would produce something that cannot install")
+
+    with open(caminho, "w", encoding="utf-8", errors="surrogateescape",
+              newline="\n") as fh:
+        fh.write("\n".join(saida) + "\n")
+    return f"manifest now declares size {tamanho:,} and md5 {soma}"
+
+
 def remendar_lancador(raiz: str) -> str:
     """Põe o gancho no hiby_player.sh. Devolve o que foi feito, em texto."""
     alvo = os.path.join(raiz, "usr", "bin", "hiby_player.sh")
@@ -259,6 +314,56 @@ def remendar_lancador(raiz: str) -> str:
     os.chmod(alvo, modo)
     return (f"hook inserted at line {corte + 1} of usr/bin/hiby_player.sh "
             f"(mode kept at {modo & 0o777:o})")
+
+
+def conferir_manifesto(dir_ota: str) -> None:
+    """O que o manifesto promete é o que está no pacote?
+
+    Esta é a conferência que faltava, e a sua falta prendeu um aparelho na
+    tela de atualização. Ela faz exatamente o que o atualizador do R1 faz: lê
+    o ota_update.in, remonta os pedaços declarados, e compara tamanho e md5.
+    Se não fechar aqui, também não vai fechar lá.
+    """
+    manifesto = os.path.join(dir_ota, "ota_update.in")
+    declarado: dict[str, dict[str, str]] = {}
+    tipo = ""
+    with open(manifesto, encoding="utf-8", errors="surrogateescape") as fh:
+        for linha in fh:
+            nu = linha.strip()
+            if "=" not in nu:
+                continue
+            chave, _, valor = nu.partition("=")
+            if chave == "img_type":
+                tipo = valor
+                declarado.setdefault(tipo, {})
+            elif tipo:
+                declarado[tipo][chave] = valor
+
+    if "rootfs" not in declarado or "kernel" not in declarado:
+        raise Erro(f"ota_update.in does not declare both a kernel and a "
+                   f"rootfs; it declares {sorted(declarado)}")
+
+    for tipo, campos in sorted(declarado.items()):
+        nome = campos.get("img_name", "")
+        montado, pedacos = juntar(dir_ota, nome)
+        try:
+            tamanho, soma = os.path.getsize(montado), md5(montado)
+            if str(tamanho) != campos.get("img_size"):
+                raise Erro(f"{tipo}: the manifest says img_size="
+                           f"{campos.get('img_size')} but the chunks assemble "
+                           f"to {tamanho}")
+            if soma != campos.get("img_md5"):
+                raise Erro(f"{tipo}: the manifest says img_md5="
+                           f"{campos.get('img_md5')} but the chunks assemble "
+                           f"to {soma}.\nThis is the failure that leaves a "
+                           f"device on the Upgrading screen: the updater "
+                           f"reassembles, compares, and waits forever for an "
+                           f"image that will never match.")
+            print(f"  verified: {tipo} matches its manifest entry "
+                  f"({len(pedacos)} chunks, {tamanho:,} bytes, md5 {soma})")
+        finally:
+            if os.path.exists(montado):
+                os.remove(montado)
 
 
 def conferir_recipiente(entrada: str, saida: str) -> None:
@@ -326,6 +431,9 @@ def conferir_saida(upt: str, raiz_original: str, leitor: str,
     """
     conf = os.path.join(trabalho, "conferencia")
     ler_iso(upt, conf, leitor)
+    # Do pacote pronto, como o aparelho o receberá: o manifesto tem de fechar
+    # com os pedaços que estão lá dentro.
+    conferir_manifesto(os.path.join(conf, "ota_v0"))
     montado, _ = juntar(os.path.join(conf, "ota_v0"), "rootfs.squashfs")
     raiz2 = os.path.join(trabalho, "raiz_conferencia")
     rodar("unsquashfs", "-n", "-f", "-d", raiz2, montado)
@@ -486,6 +594,13 @@ def main() -> int:
         partir(novo, dir_ota, "rootfs.squashfs")
         open(os.path.join(dir_ota, f"ota_md5_rootfs.squashfs.{md5(novo)}"),
              "w").close()
+        # E o manifesto, que é quem o atualizador realmente lê.
+        manifesto = os.path.join(dir_ota, "ota_update.in")
+        if not os.path.isfile(manifesto):
+            raise Erro("there is no ota_v0/ota_update.in in this package; "
+                       "without it the updater has nothing to verify against")
+        print("  " + reescrever_manifesto(manifesto, os.path.getsize(novo),
+                                          md5(novo)))
         os.remove(montado)
 
         print("building the package")
