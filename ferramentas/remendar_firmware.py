@@ -251,6 +251,61 @@ def remendar_lancador(raiz: str) -> str:
             f"(mode kept at {modo & 0o777:o})")
 
 
+def conferir_recipiente(entrada: str, saida: str) -> None:
+    """A ISO gerada tem a mesma forma da de fábrica?
+
+    Esta conferência não existia, e a sua falta custou caro: eu conferia o
+    recheio do pacote — o squashfs, arquivo por arquivo — e nunca o pacote.
+    O que estava errado era a embalagem. Faltava o Joliet, sem o qual os nomes
+    longos dos pedaços somem, e o atualizador do aparelho ficou eternamente na
+    tela "Upgrading…" procurando por eles.
+
+    O que se compara aqui são as propriedades que o atualizador enxerga, lidas
+    das duas ISOs pelo mesmo comando. Se alguma diferir, nenhum pacote sai.
+    """
+    if not existe("isoinfo"):
+        raise Erro("isoinfo is missing (genisoimage package) and this check "
+                   "cannot be skipped: it is the one that would have caught "
+                   "the packaging bug that bricked a device")
+
+    def ler(caminho: str) -> dict[str, str]:
+        campos: dict[str, str] = {}
+        for linha in rodar("isoinfo", "-d", "-i", caminho).splitlines():
+            if linha.startswith("Joliet"):
+                campos["joliet"] = linha.strip()
+            elif linha.startswith("NO Joliet"):
+                campos["joliet"] = "absent"
+            elif linha.startswith("Rock Ridge"):
+                campos["rock ridge"] = linha.strip()
+            elif ":" in linha:
+                chave, _, valor = linha.partition(":")
+                if chave.strip() in ("System id", "Volume id",
+                                     "Logical block size is"):
+                    campos[chave.strip()] = valor.strip()
+        return campos
+
+    a, b = ler(entrada), ler(saida)
+    problemas = [f"{k}: input has {a.get(k, '(none)')!r}, "
+                 f"output has {b.get(k, '(none)')!r}"
+                 for k in sorted(set(a) | set(b)) if a.get(k) != b.get(k)]
+    if problemas:
+        raise Erro("the package came out shaped differently from the "
+                   "original:\n  " + "\n  ".join(problemas))
+    print(f"  verified: same container as the original "
+          f"({a.get('joliet', '?')}, {a.get('rock ridge', '?')})")
+
+    # E os nomes longos têm de sobreviver pelos DOIS caminhos, porque não se
+    # sabe por qual deles o atualizador lê.
+    for rotulo, extra in (("Rock Ridge", ["-R"]), ("Joliet", ["-J"])):
+        nomes = rodar("isoinfo", "-i", saida, "-f", *extra).splitlines()
+        longos = [n for n in nomes if "rootfs.squashfs." in n]
+        if not longos:
+            raise Erro(f"the chunk names do not survive through {rotulo} in "
+                       f"the generated package — this is exactly what left a "
+                       f"device stuck on the update screen")
+        print(f"  verified: {len(longos)} chunk names readable via {rotulo}")
+
+
 def conferir_saida(upt: str, raiz_original: str, leitor: str,
                    trabalho: str) -> None:
     """Desempacota o que acabou de ser gerado e compara com a entrada.
@@ -423,10 +478,21 @@ def main() -> int:
         os.remove(montado)
 
         print("building the package")
-        rodar(gerador, "-quiet", "-R", "-V", "CDROM", "-o", args.saida, iso)
+        # -J é obrigatório, e a falta dele foi o que travou um aparelho.
+        #
+        # Os pedaços têm nomes de 52 caracteres. No ISO 9660 puro eles viram
+        # ROOTFS_S.000;1 e o md5 do nome — que é como o atualizador confere
+        # cada pedaço — some. O nome longo sobrevive de duas formas: Rock
+        # Ridge e Joliet. O pacote de fábrica traz as duas; eu tinha gerado só
+        # com Rock Ridge, e o atualizador, que lê pelo Joliet, ficou
+        # procurando arquivos que não existiam para ele. A tela "Upgrading…"
+        # não é um travamento: é ele esperando por algo que nunca chega.
+        rodar(gerador, "-quiet", "-R", "-J", "-V", "CDROM", "-o",
+              args.saida, iso)
         print(f"  wrote {args.saida} ({os.path.getsize(args.saida):,} bytes)")
 
         print("checking the result")
+        conferir_recipiente(args.entrada, args.saida)
         conferir_saida(args.saida, original, leitor, trabalho)
 
         print()

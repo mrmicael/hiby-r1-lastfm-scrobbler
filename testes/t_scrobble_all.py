@@ -25,6 +25,7 @@ SUITE = [
     ("janela do scrobbler",          "t_janela.py",      600),
     ("idiomas e catalogo",           "t_idioma.py",      120),
     ("registro ao vivo na janela",    "t_painel.py",      180),
+    ("remendo de firmware (travado)", "t_firmware.py",     60),
 ]
 res = []
 for rot, script, lim in SUITE:
