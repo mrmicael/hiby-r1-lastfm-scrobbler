@@ -43,15 +43,21 @@ fonte = open(FERRAMENTA, encoding="utf-8").read()
 arv = ast.parse(fonte)
 
 print("=" * 74)
-print("1. continua desativado")
+print("1. nao roda sem que a pessoa reconheca o risco")
 print("=" * 74)
-# Rodar sem argumento nenhum tem de recusar, e a recusa tem de explicar o que
-# aconteceu — nao um "usage:" seco.
+# A primeira versao gerou um pacote que travou um aparelho. O defeito foi
+# achado e corrigido, mas nenhum pacote deste script foi instalado ainda —
+# entao ele nao roda sozinho, e o aviso tem de contar a historia inteira e
+# dizer como recuperar, ANTES de qualquer coisa acontecer.
 r = subprocess.run([sys.executable, FERRAMENTA, "entrada.upt", "saida.upt"],
                    capture_output=True, text=True)
-check("recusa rodar", r.returncode != 0, f"rc={r.returncode}")
+check("recusa rodar sem o reconhecimento", r.returncode != 0, f"rc={r.returncode}")
 saida = (r.stdout or "") + (r.stderr or "")
-check("e diz que o pacote nao instalava", "does not install" in saida)
+check("avisa que nenhum pacote foi instalado ainda",
+      "has been installed" in saida)
+check("conta o que aconteceu da primeira vez",
+      "did NOT install" in saida or "does not install" in saida)
+check("manda por um firmware bom no cartao ANTES", "BEFORE you flash" in saida)
 check("e diz como recuperar um aparelho preso", "volume-up" in saida)
 
 print()

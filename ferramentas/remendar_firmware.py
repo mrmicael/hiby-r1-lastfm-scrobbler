@@ -64,7 +64,7 @@ import sys
 import tempfile
 
 # ---------------------------------------------------------------------------
-# DESATIVADO — o pacote que este script gera NÃO INSTALA.
+# HISTÓRICO — leia antes de confiar nisto.
 #
 # Foi publicado, alguém instalou, e o aparelho ficou preso na tela "Upgrading…"
 # indefinidamente. Recuperar exigiu tirar o cartão, pôr o firmware bom nele e
@@ -80,22 +80,32 @@ import tempfile
 # Fica travado até eu achar a diferença e instalar um pacote gerado por ele
 # num aparelho de verdade. "Compilou e passou nas minhas conferências" não é o
 # padrão para uma coisa que pode deixar alguém sem player.
-DESATIVADO = (
-    "This script is disabled.\n\n"
-    "The package it produced does not install: a device that tried it sat on\n"
-    "the \"Upgrading...\" screen forever and had to be recovered by putting a\n"
-    "known-good firmware on the card and powering on with power + volume-up.\n"
-    "Nobody lost a player, but only because that recovery exists.\n\n"
-    "The md5 chain, the squashfs contents, the permissions and the launcher\n"
-    "syntax were all verified and were all correct. The problem is somewhere\n"
-    "in the shape of the ISO container itself, which I never compared against\n"
-    "the original — I checked what was inside the package and not the package.\n\n"
-    "It stays disabled until that is found AND a package it generates has\n"
-    "been installed on a real device.\n\n"
-    "Meanwhile, to get the collector running after a reboot, use \"Start now\"\n"
-    "in the app, or:\n"
-    "  adb shell \"setsid /usr/data/scrobble/r1scrobbled </dev/null "
-    ">/dev/null 2>&1 &\"\n"
+AVISO = (
+    "READ THIS FIRST — no package from this script has been installed yet.\n"
+    "\n"
+    "The first version produced a package that did NOT install. A device that\n"
+    "tried it sat on the \"Upgrading...\" screen indefinitely and was recovered\n"
+    "by putting a known-good firmware on the card and powering on while\n"
+    "holding power + volume-up.\n"
+    "\n"
+    "The cause was found: the stock package is ISO 9660 with BOTH Rock Ridge\n"
+    "and Joliet, and it was being built with Rock Ridge only. The 52-character\n"
+    "chunk names collapse to 8.3 without Joliet, taking with them the md5 the\n"
+    "updater checks each chunk against. The updater was waiting for files that,\n"
+    "to it, did not exist.\n"
+    "\n"
+    "That is fixed, and the container is now compared against the input before\n"
+    "anything is written. But a fix that has been verified is not a fix that\n"
+    "has been installed, and treating those as the same thing is what cost\n"
+    "somebody an evening. So:\n"
+    "\n"
+    "  * BEFORE you flash, put a known-good .upt on the memory card.\n"
+    "    That is your way back, and you want it there already.\n"
+    "  * If it hangs on \"Upgrading...\": power off, then power on holding\n"
+    "    power + volume-up. It will install the good firmware from the card.\n"
+    "  * Do not flash on a low battery.\n"
+    "\n"
+    "Pass --entendi-o-risco to continue.\n"
 )
 
 PEDACO = 512 * 1024          # o pacote de fábrica usa pedaços de 512 KB
@@ -393,12 +403,13 @@ def main() -> int:
     ap.add_argument("saida", help="the patched .upt to write")
     ap.add_argument("--manter", action="store_true",
                     help="keep the work directory (for inspection)")
-    ap.add_argument("--eu-sei-que-esta-quebrado", action="store_true",
-                    help=argparse.SUPPRESS)
+    ap.add_argument("--entendi-o-risco", action="store_true",
+                    help="acknowledge that no package from this script has "
+                         "been installed on a device yet")
     args = ap.parse_args()
 
-    if not args.eu_sei_que_esta_quebrado:
-        print(DESATIVADO, file=sys.stderr)
+    if not args.entendi_o_risco:
+        print(AVISO, file=sys.stderr)
         return 2
 
     if not os.path.isfile(args.entrada):
