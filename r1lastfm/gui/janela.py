@@ -461,11 +461,12 @@ class Painel(ttk.Frame):
         if s.instalado and s.no_init and s.init_roda is False:
             self.lbl_boot.configure(text=t("dev.sem_boot.ajuda"))
             self.lbl_boot.pack(anchor="w", pady=(10, 0), before=self.lbl_versao)
-            self.btn_firmware.pack(anchor="w", pady=(8, 0),
-                                   before=self.lbl_versao)
+            # O botão do remendo está fora do ar: o pacote que ele gerava não
+            # instalava, e prendeu um aparelho na tela de atualização. Ver o
+            # comentário no ferramentas/remendar_firmware.py.
         else:
             self.lbl_boot.pack_forget()
-            self.btn_firmware.pack_forget()
+        self.btn_firmware.pack_forget()
 
     def _render_versao(self, s: AP.Situacao) -> None:
         if not s.instalado:

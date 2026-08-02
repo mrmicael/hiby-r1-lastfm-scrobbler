@@ -283,29 +283,20 @@ desses, o cartão 3 diz *“Inicia junto com o player”* e nada disto se aplica
 
 Se não tem, há dois caminhos, e todo o resto funciona igual nos dois:
 
-* **Ponha o gancho no seu próprio firmware, uma vez, e esqueça o assunto.**
-  O [`ferramentas/remendar_firmware.py`](ferramentas/remendar_firmware.py) pega
-  o `r1.upt` de fábrica, acrescenta a linha que falta no `hiby_player.sh` e
-  grava um pacote novo, que você instala pelo menu de atualização do próprio
-  player. A partir daí o coletor sobe em todo boot, sem PC nenhum — é o mesmo
-  mecanismo que o mod de podcast usa.
+* ~~Remendar o seu próprio firmware para pôr o gancho~~ — **retirado, não use.**
+  O pacote gerado pelo `ferramentas/remendar_firmware.py` **não instala**: um
+  aparelho que tentou ficou preso na tela *Upgrading…* indefinidamente, e foi
+  preciso recuperá-lo copiando um firmware bom para o cartão e ligando com
+  **power + volume acima** pressionados. Ninguém perdeu o aparelho, mas só
+  porque essa recuperação existe. Se você gerou um, apague.
 
-  ```bash
-  python3 ferramentas/remendar_firmware.py r1.upt r1-autostart.upt
-  ```
+  O script conferia a cadeia de md5, o conteúdo do squashfs, as permissões e a
+  sintaxe do lançador — tudo isso estava certo. O que ele nunca fez foi
+  comparar a forma do recipiente ISO com a do original, e é aí que está o
+  erro. Fica desativado até isso ser encontrado *e* um pacote gerado por ele
+  ter sido instalado num aparelho de verdade.
 
-  Ele muda exatamente um arquivo e uma linha, e prova isso: antes de gravar
-  qualquer coisa, desempacota a própria saída e compara com a entrada —
-  conteúdo, permissão e dono dos 4.718 arquivos — e ainda confere que o
-  lançador remendado é shell válido. Precisa de `squashfs-tools`,
-  `genisoimage` e `p7zip-full` (no Windows, rode dentro do WSL). Ele nunca
-  baixa nem distribui firmware da HiBy — o arquivo é você que fornece.
-
-  **Gravar firmware não tem volta por software.** Guarde o `r1.upt` original e
-  não grave com a bateria baixa. Eu gerei e conferi o pacote, mas não o gravei
-  em nenhum aparelho — trate a primeira gravação como o risco que ela é.
-
-* Ou, se preferir não mexer no firmware: aperte **Iniciar agora** no cartão 3
+* Aperte **Iniciar agora** no cartão 3
   sempre que plugar o cabo. Daí ele segue rodando — offline, sem cabo — até
   você desligar o player. O equivalente à mão:
 

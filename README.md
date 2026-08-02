@@ -285,29 +285,20 @@ card 3 says *“Starts together with the player”* and you can ignore all of th
 If you do not, you have two options, and everything else works normally either
 way:
 
-* **Add the hook to your own firmware, once, and never think about it again.**
-  [`ferramentas/remendar_firmware.py`](ferramentas/remendar_firmware.py) takes
-  the stock `r1.upt`, adds the one missing line to `hiby_player.sh`, and writes
-  a new package you flash from the player's own update menu. After that the
-  collector starts on every boot with no PC involved — same mechanism the
-  podcast mod uses.
+* ~~Patch your own firmware to add the hook~~ — **withdrawn, do not use.**
+  A package built by `ferramentas/remendar_firmware.py` **does not install**:
+  a device that tried it sat on the *Upgrading…* screen indefinitely and had to
+  be recovered by copying a known-good firmware to the card and powering on
+  while holding **power + volume-up**. Nobody lost a player, but only because
+  that recovery exists. If you built one, delete it.
 
-  ```bash
-  python3 ferramentas/remendar_firmware.py r1.upt r1-autostart.upt
-  ```
+  The script verified the md5 chain, the squashfs contents, file permissions
+  and the patched launcher's syntax — all of which were correct. What it never
+  did was compare the shape of the ISO container against the original, and that
+  is where the fault is. It is disabled until that is found *and* a package it
+  produces has been installed on a real device.
 
-  It changes exactly one file and one line, and proves it: before writing
-  anything it unpacks its own output and diffs it against the input, checking
-  contents, permissions and ownership of all 4,718 files, then confirms the
-  patched launcher is valid shell. Needs `squashfs-tools`, `genisoimage` and
-  `p7zip-full` (run it in WSL on Windows). It never downloads or ships HiBy
-  firmware — you supply the file.
-
-  **Flashing is not reversible from software.** Keep your stock `r1.upt`, and
-  do not flash on a low battery. I built and verified this package but have not
-  flashed it myself, so treat the first flash as the risk it is.
-
-* Or, if you would rather not touch the firmware: press **Start now** in card 3
+* Press **Start now** in card 3
   whenever you plug the cable in. The collector then keeps running — offline,
   cable unplugged — until you power the player off. Equivalent by hand:
 

@@ -348,9 +348,10 @@ TEXTOS: dict[str, dict[str, str]] = {
               "</dev/null >/dev/null 2>&1 &\"\n"
               "Once started it keeps collecting offline, with no cable, until "
               "you power the player off.\n\n"
-              "To fix it permanently, ferramentas/remendar_firmware.py adds "
-              "the missing line to your own firmware file, which you then "
-              "flash from the player's update menu. See the README.",
+              "There was a firmware patcher here to fix it permanently. It is "
+              "withdrawn: the package it built did not install, and left a "
+              "device stuck on the update screen. Do not use a build from it. "
+              "See the README.",
         "pt": "⚠  Instalado, mas este firmware nunca vai iniciá-lo sozinho.\n"
               "Nada no firmware de fábrica do R1 executa o /usr/data/init.sh — "
               "esse arquivo só roda se você tiver um firmware remendado (o mod "
@@ -362,10 +363,10 @@ TEXTOS: dict[str, dict[str, str]] = {
               "</dev/null >/dev/null 2>&1 &\"\n"
               "Uma vez iniciado ele segue coletando offline, sem cabo, até "
               "você desligar o player.\n\n"
-              "Para resolver de vez, o ferramentas/remendar_firmware.py "
-              "acrescenta a linha que falta no seu próprio arquivo de "
-              "firmware, que você depois grava pelo menu de atualização do "
-              "player. Veja o README.",
+              "Havia aqui um remendador de firmware para resolver de vez. Ele "
+              "foi retirado: o pacote que ele gerava não instalava, e deixou "
+              "um aparelho preso na tela de atualização. Não use nenhum "
+              "pacote gerado por ele. Veja o README.",
     },
     # O remendo de firmware, na tela. É a única coisa do programa que pode
     # inutilizar um player, então o texto não economiza: diz o que vai

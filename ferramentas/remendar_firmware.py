@@ -63,6 +63,41 @@ import subprocess
 import sys
 import tempfile
 
+# ---------------------------------------------------------------------------
+# DESATIVADO — o pacote que este script gera NÃO INSTALA.
+#
+# Foi publicado, alguém instalou, e o aparelho ficou preso na tela "Upgrading…"
+# indefinidamente. Recuperar exigiu tirar o cartão, pôr o firmware bom nele e
+# ligar segurando power + volume acima. Ninguém perdeu o aparelho, mas foi por
+# pouco, e foi por minha causa.
+#
+# O que eu conferia — a cadeia de md5 dos pedaços, o conteúdo do squashfs, as
+# permissões, a sintaxe do lançador — estava certo e continua certo. O erro
+# está em outro lugar: alguma coisa na forma do pacote ISO em si, que eu nunca
+# comparei com a do original. Verificar o recheio e não a embalagem foi
+# exatamente o tipo de conferência que dá confiança sem dar garantia.
+#
+# Fica travado até eu achar a diferença e instalar um pacote gerado por ele
+# num aparelho de verdade. "Compilou e passou nas minhas conferências" não é o
+# padrão para uma coisa que pode deixar alguém sem player.
+DESATIVADO = (
+    "This script is disabled.\n\n"
+    "The package it produced does not install: a device that tried it sat on\n"
+    "the \"Upgrading...\" screen forever and had to be recovered by putting a\n"
+    "known-good firmware on the card and powering on with power + volume-up.\n"
+    "Nobody lost a player, but only because that recovery exists.\n\n"
+    "The md5 chain, the squashfs contents, the permissions and the launcher\n"
+    "syntax were all verified and were all correct. The problem is somewhere\n"
+    "in the shape of the ISO container itself, which I never compared against\n"
+    "the original — I checked what was inside the package and not the package.\n\n"
+    "It stays disabled until that is found AND a package it generates has\n"
+    "been installed on a real device.\n\n"
+    "Meanwhile, to get the collector running after a reboot, use \"Start now\"\n"
+    "in the app, or:\n"
+    "  adb shell \"setsid /usr/data/scrobble/r1scrobbled </dev/null "
+    ">/dev/null 2>&1 &\"\n"
+)
+
 PEDACO = 512 * 1024          # o pacote de fábrica usa pedaços de 512 KB
 MARCA = "# --- r1lastfm auto-start hook ---"
 MARCA_FIM = "# --- end of r1lastfm auto-start hook ---"
@@ -303,7 +338,13 @@ def main() -> int:
     ap.add_argument("saida", help="the patched .upt to write")
     ap.add_argument("--manter", action="store_true",
                     help="keep the work directory (for inspection)")
+    ap.add_argument("--eu-sei-que-esta-quebrado", action="store_true",
+                    help=argparse.SUPPRESS)
     args = ap.parse_args()
+
+    if not args.eu_sei_que_esta_quebrado:
+        print(DESATIVADO, file=sys.stderr)
+        return 2
 
     if not os.path.isfile(args.entrada):
         print(f"input not found: {args.entrada}", file=sys.stderr)
