@@ -179,6 +179,23 @@ check("marcador de inicio presente", any(f[0] == "b1" for f in fila))
 check("marcador do most_played presente", any(f[0] == "m1" for f in fila),
       f"{sum(1 for f in fila if f[0] == 'm1')} marcadores")
 check("marcador de silencio presente", any(f[0] == "i1" for f in fila))
+# O f1 e o que fecha a ULTIMA faixa de cada sessao. Sem ele ela fica em
+# aberto e nunca sobe — a linha do historico entra quando a faixa comeca,
+# entao a unica coisa que diz que ela acabou e o audio ter parado.
+#
+# Aqui nao ha pcm de verdade, entao o r1collect responde "parado" e o
+# daemon fecha a faixa na volta seguinte a colheita. E exatamente o
+# caminho que interessa exercitar: o do fechamento.
+f1 = [f for f in fila if f[0] == "f1"]
+check("marcador de fim de audio presente", bool(f1),
+      f"{len(f1)} marcadores f1 — sem ele a ultima faixa nunca fecha")
+if f1 and toca:
+    check("o f1 vem DEPOIS da faixa que ele fecha",
+          int(f1[-1][1]) >= int(toca[-1][2]),
+          f"f1={f1[-1][1]} ultima_faixa={toca[-1][2]}")
+check("o daemon registrou o fechamento no log",
+      "audio parou" in saida,
+      f"{saida.count('audio parou')} linha(s) de fechamento")
 i1 = [f for f in fila if f[0] == "i1"]
 if i1 and toca:
     check("o i1 marca o ULTIMO evento, nao a hora de detectar",
