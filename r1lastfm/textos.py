@@ -347,7 +347,10 @@ TEXTOS: dict[str, dict[str, str]] = {
               "    adb shell \"setsid /usr/data/scrobble/r1scrobbled "
               "</dev/null >/dev/null 2>&1 &\"\n"
               "Once started it keeps collecting offline, with no cable, until "
-              "you power the player off.",
+              "you power the player off.\n\n"
+              "To fix it permanently, ferramentas/remendar_firmware.py adds "
+              "the missing line to your own firmware file, which you then "
+              "flash from the player's update menu. See the README.",
         "pt": "⚠  Instalado, mas este firmware nunca vai iniciá-lo sozinho.\n"
               "Nada no firmware de fábrica do R1 executa o /usr/data/init.sh — "
               "esse arquivo só roda se você tiver um firmware remendado (o mod "
@@ -358,7 +361,11 @@ TEXTOS: dict[str, dict[str, str]] = {
               "    adb shell \"setsid /usr/data/scrobble/r1scrobbled "
               "</dev/null >/dev/null 2>&1 &\"\n"
               "Uma vez iniciado ele segue coletando offline, sem cabo, até "
-              "você desligar o player.",
+              "você desligar o player.\n\n"
+              "Para resolver de vez, o ferramentas/remendar_firmware.py "
+              "acrescenta a linha que falta no seu próprio arquivo de "
+              "firmware, que você depois grava pelo menu de atualização do "
+              "player. Veja o README.",
     },
     "btn.iniciar": {
         "en": "Start now",
@@ -2333,9 +2340,16 @@ TEXTOS: dict[str, dict[str, str]] = {
         "en": "{n} left out",
         "pt": "{n} deixadas de fora",
     },
+    # "4 reboot(s) in the queue" nao dizia nada a ninguem — perguntaram o que
+    # significava, com razao. O numero e util (cada corte e um ponto em que o
+    # tempo ouvido nao pode ser deduzido por cima), mas so se vier explicado.
     "fila.reboots": {
-        "en": "{n} device reboot(s) in the queue",
-        "pt": "{n} reinício(s) do aparelho na fila",
+        "en": "the player was restarted {n} time(s) while this queue was "
+              "being recorded — listening time is measured separately on each "
+              "side of a restart, never across one",
+        "pt": "o player foi reiniciado {n} vez(es) enquanto esta fila era "
+              "gravada — o tempo ouvido é medido em separado de cada lado de "
+              "um reinício, nunca por cima dele",
     },
     "fila.clock_warn": {
         "en": "WARNING: part of the queue was recorded with the clock wrong",

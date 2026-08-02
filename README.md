@@ -285,15 +285,35 @@ card 3 says *“Starts together with the player”* and you can ignore all of th
 If you do not, you have two options, and everything else works normally either
 way:
 
-* Press **Start now** in card 3 whenever you plug the cable in. The collector
-  then keeps running — offline, cable unplugged — until you power the player
-  off. Equivalent by hand:
+* **Add the hook to your own firmware, once, and never think about it again.**
+  [`ferramentas/remendar_firmware.py`](ferramentas/remendar_firmware.py) takes
+  the stock `r1.upt`, adds the one missing line to `hiby_player.sh`, and writes
+  a new package you flash from the player's own update menu. After that the
+  collector starts on every boot with no PC involved — same mechanism the
+  podcast mod uses.
+
+  ```bash
+  python3 ferramentas/remendar_firmware.py r1.upt r1-autostart.upt
+  ```
+
+  It changes exactly one file and one line, and proves it: before writing
+  anything it unpacks its own output and diffs it against the input, checking
+  contents, permissions and ownership of all 4,718 files, then confirms the
+  patched launcher is valid shell. Needs `squashfs-tools`, `genisoimage` and
+  `p7zip-full` (run it in WSL on Windows). It never downloads or ships HiBy
+  firmware — you supply the file.
+
+  **Flashing is not reversible from software.** Keep your stock `r1.upt`, and
+  do not flash on a low battery. I built and verified this package but have not
+  flashed it myself, so treat the first flash as the risk it is.
+
+* Or, if you would rather not touch the firmware: press **Start now** in card 3
+  whenever you plug the cable in. The collector then keeps running — offline,
+  cable unplugged — until you power the player off. Equivalent by hand:
 
   ```
   adb shell "setsid /usr/data/scrobble/r1scrobbled </dev/null >/dev/null 2>&1 &"
   ```
-
-* Or install a firmware patch that adds the hook, and get it at boot.
 
 Anything you listened to while it was stopped is **not** lost: the player's own
 history database is what gets read, so the collector picks it all up the moment

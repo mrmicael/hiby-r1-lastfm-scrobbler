@@ -283,15 +283,35 @@ desses, o cartão 3 diz *“Inicia junto com o player”* e nada disto se aplica
 
 Se não tem, há dois caminhos, e todo o resto funciona igual nos dois:
 
-* Aperte **Iniciar agora** no cartão 3 sempre que plugar o cabo. Daí ele segue
-  rodando — offline, sem cabo — até você desligar o player. O equivalente à
-  mão:
+* **Ponha o gancho no seu próprio firmware, uma vez, e esqueça o assunto.**
+  O [`ferramentas/remendar_firmware.py`](ferramentas/remendar_firmware.py) pega
+  o `r1.upt` de fábrica, acrescenta a linha que falta no `hiby_player.sh` e
+  grava um pacote novo, que você instala pelo menu de atualização do próprio
+  player. A partir daí o coletor sobe em todo boot, sem PC nenhum — é o mesmo
+  mecanismo que o mod de podcast usa.
+
+  ```bash
+  python3 ferramentas/remendar_firmware.py r1.upt r1-autostart.upt
+  ```
+
+  Ele muda exatamente um arquivo e uma linha, e prova isso: antes de gravar
+  qualquer coisa, desempacota a própria saída e compara com a entrada —
+  conteúdo, permissão e dono dos 4.718 arquivos — e ainda confere que o
+  lançador remendado é shell válido. Precisa de `squashfs-tools`,
+  `genisoimage` e `p7zip-full` (no Windows, rode dentro do WSL). Ele nunca
+  baixa nem distribui firmware da HiBy — o arquivo é você que fornece.
+
+  **Gravar firmware não tem volta por software.** Guarde o `r1.upt` original e
+  não grave com a bateria baixa. Eu gerei e conferi o pacote, mas não o gravei
+  em nenhum aparelho — trate a primeira gravação como o risco que ela é.
+
+* Ou, se preferir não mexer no firmware: aperte **Iniciar agora** no cartão 3
+  sempre que plugar o cabo. Daí ele segue rodando — offline, sem cabo — até
+  você desligar o player. O equivalente à mão:
 
   ```
   adb shell "setsid /usr/data/scrobble/r1scrobbled </dev/null >/dev/null 2>&1 &"
   ```
-
-* Ou instale um firmware remendado que tenha o gancho, e tenha o boot.
 
 O que você ouviu com ele parado **não** se perde: o que é lido é o histórico do
 próprio player, então o coletor pega tudo assim que sobe. Ele só não tem como
