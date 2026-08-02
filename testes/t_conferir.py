@@ -155,8 +155,21 @@ if zig:
 if os.path.isfile(din):
     ok, msg = aceita(din, "dinamico")
     check("mipsel dinamico recusado", not ok, msg[:100])
-    check("o motivo fala de estatico ou de bibliotecas",
-          "estátic" in msg or "dinâmic" in msg or "bibliotec" in msg, msg[:130])
+    # O motivo tem de dizer o que ha de errado, e em qualquer idioma. Antes
+    # este teste procurava so as palavras em portugues; passou meses sem
+    # rodar (faltava o Zig) e, quando rodou, acusou uma mensagem em ingles
+    # perfeitamente correta. Agora ele exerce os dois idiomas — o que de
+    # quebra prova que a mensagem esta traduzida.
+    from r1lastfm import idioma as _id
+    guardado = _id.atual()
+    palavras = {"pt": ("estátic", "dinâmic", "bibliotec"),
+                "en": ("static", "dynamic", "librar", "interpreter")}
+    for lang, esperadas in palavras.items():
+        _id.definir(lang)
+        _ok, m = aceita(din, "dinamico")
+        check(f"o motivo explica o problema em {lang}",
+              any(p in m.lower() for p in esperadas), m[:120])
+    _id.definir(guardado)
 else:
     print("   (nao consegui gerar um mipsel dinamico; pulando)")
 

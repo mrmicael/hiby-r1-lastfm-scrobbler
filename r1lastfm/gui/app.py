@@ -39,6 +39,13 @@ class App(tk.Tk):
         self._busy_text = ""
         self._busy_desde = 0.0
         self._fila: queue.Queue = queue.Queue()
+        # Os dois `after` que se reagendam sozinhos. Guardados para poderem
+        # ser cancelados no fechamento: sem isso o Tk tenta chamá-los depois
+        # de a janela ter ido embora e cospe um `invalid command name` na
+        # saída de erro — invisível para quem roda o programa empacotado, que
+        # é justamente o que torna esse tipo de coisa difícil de achar.
+        self._tique_id: Optional[str] = None
+        self._drenar_id: Optional[str] = None
 
         self.title(t("win.title"))
         self.geometry("1000x860")
@@ -58,11 +65,16 @@ class App(tk.Tk):
 
         self.logpane = W.LogPane(corpo, height=8)
         self.logpane.pack(fill="both", expand=False, padx=16, pady=(0, 12))
+        # `append`, não `write`. O nome errado ficou aqui desde o começo e
+        # ninguém viu: uma exceção dentro de um callback do `after()` do Tk
+        # não derruba nada — o Tk 8.6 a engole e o painel apenas fica vazio.
+        # O Tk 9.0 a mostra, e foi assim que dois usuários descobriram, cada
+        # um no seu sistema operacional, um recurso que nunca funcionou.
         self.log.add_sink(
-            lambda nivel, msg: self.ui(lambda: self.logpane.write(nivel, msg)))
+            lambda nivel, msg: self.ui(lambda: self.logpane.append(nivel, msg)))
 
         self.protocol("WM_DELETE_WINDOW", self._fechar)
-        self.after(80, self._drenar)
+        self._drenar_id = self.after(80, self._drenar)
         if self.construir:
             self.construir(self)
 
@@ -185,7 +197,7 @@ class App(tk.Tk):
         seg = int(time.time() - self._busy_desde)
         relogio = f"{seg // 60}:{seg % 60:02d}" if seg >= 60 else f"{seg}s"
         self.status.configure(text=f"{self._busy_text}   [{relogio}]")
-        self.after(1000, self._tique)
+        self._tique_id = self.after(1000, self._tique)
 
     def cancelar(self) -> None:
         if self._busy:
@@ -214,7 +226,7 @@ class App(tk.Tk):
                     tratador()
         except queue.Empty:
             pass
-        self.after(80, self._drenar)
+        self._drenar_id = self.after(80, self._drenar)
 
     def ui(self, fn: Callable[[], None]) -> None:
         """Agenda uma mudança de tela vinda da thread de trabalho."""
@@ -230,3 +242,20 @@ class App(tk.Tk):
                 return
         self.log.close()
         self.destroy()
+
+    def destroy(self) -> None:
+        """Desmarca os `after` pendentes antes de a janela sumir.
+
+        Vale para qualquer caminho de saída, não só o botão de fechar: os
+        testes também destroem a janela, e é lá que o `invalid command name`
+        aparecia.
+        """
+        for atributo in ("_tique_id", "_drenar_id"):
+            ident = getattr(self, atributo, None)
+            if ident:
+                try:
+                    self.after_cancel(ident)
+                except Exception:
+                    pass
+                setattr(self, atributo, None)
+        super().destroy()

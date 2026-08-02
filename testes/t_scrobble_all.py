@@ -13,6 +13,7 @@ SUITE = [
     ("daemon no busybox ash",        "t_daemon.py",      900),
     ("reconstrucao da fila",         "t_fila.py",        120),
     ("r1send: assinatura e lote",    "t_r1send.py",      600),
+    ("disco ouvido com o daemon fora","t_lote.py",       300),
     ("envio automatico pelo WiFi",   "t_envio.py",       900),
     ("envio assim que a faixa acaba","t_imediato.py",    300),
     ("tocando agora (live)",         "t_agora.py",       600),
@@ -22,6 +23,7 @@ SUITE = [
     ("binarios do repositorio",      "t_bin.py",          60),
     ("janela do scrobbler",          "t_janela.py",      600),
     ("idiomas e catalogo",           "t_idioma.py",      120),
+    ("registro ao vivo na janela",    "t_painel.py",      180),
 ]
 res = []
 for rot, script, lim in SUITE:
