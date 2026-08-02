@@ -195,20 +195,34 @@ def juntar(dir_ota: str, base: str) -> tuple[str, list[str]]:
     return saida, nomes
 
 
-def partir(caminho: str, dir_ota: str, base: str) -> None:
-    """Reparte em pedaços de 512 KB com a cadeia de md5 que o pacote usa.
+def partir(caminho: str, dir_ota: str, base: str) -> int:
+    """Reparte em pedaços de 512 KB, do jeito exato que o atualizador espera.
 
-    O nome de cada pedaço carrega um md5, e não é o dele mesmo:
+    O formato não foi deduzido: está no /etc/ota_bin/local_ota_update.sh, que
+    vem dentro do próprio firmware. O laço dele é este, resumido:
 
-      • o pedaço 0000 leva o md5 do arquivo INTEIRO;
-      • o pedaço N leva o md5 do pedaço N-1.
+        md5_file=ota_md5_$img_name.$pre_md5      # a LISTA de md5
+        src_file=$img_name.$num.$pre_md5         # o pedaço
+        md5_num1=`sed -n "${num}p" $md5_file`    # linha i+1 da lista
+        md5_num2=`md5sum_file $out_file`         # md5 do pedaço
+        [ "$md5_num1" != "$md5_num2" ] && falha
+        pre_md5=$md5_num2                        # encadeia no proximo nome
 
-    É uma corrente de conferência — descobri isso comparando os nomes do
-    pacote de fábrica com os md5 calculados, e um pacote que não a respeite
-    é recusado pelo aparelho.
+    Ou seja, são DUAS coisas, e eu só fazia uma:
+
+      1. o nome de cada pedaço carrega o md5 do ANTERIOR (o do pedaço 0000
+         carrega o do arquivo inteiro) — isso eu já fazia;
+
+      2. e existe um arquivo `ota_md5_<nome>.<md5 do inteiro>` com o md5 de
+         CADA pedaço, uma linha por pedaço, na ordem. Eu criava esse arquivo
+         VAZIO. O `sed -n "1p"` devolvia nada, o atualizador desistia no
+         primeiro pedaço, e a tela ficava em "Upgrading…" para sempre.
+
+    Devolve quantos pedaços foram escritos.
     """
     inteiro = md5(caminho)
     anterior = inteiro
+    somas: list[str] = []
     with open(caminho, "rb") as fh:
         i = 0
         while True:
@@ -219,9 +233,16 @@ def partir(caminho: str, dir_ota: str, base: str) -> None:
             with open(os.path.join(dir_ota, nome), "wb") as out:
                 out.write(bloco)
             anterior = md5_bytes(bloco)
+            somas.append(anterior)
             i += 1
     if i == 0:
         raise Erro(f"{base} came out empty")
+
+    # A lista de md5, que é o que faltava.
+    with open(os.path.join(dir_ota, f"ota_md5_{base}.{inteiro}"),
+              "w", newline="\n") as out:
+        out.write("".join(s + "\n" for s in somas))
+    return i
 
 
 def reescrever_manifesto(caminho: str, tamanho: int, soma: str) -> str:
@@ -359,11 +380,50 @@ def conferir_manifesto(dir_ota: str) -> None:
                            f"device on the Upgrading screen: the updater "
                            f"reassembles, compares, and waits forever for an "
                            f"image that will never match.")
-            print(f"  verified: {tipo} matches its manifest entry "
-                  f"({len(pedacos)} chunks, {tamanho:,} bytes, md5 {soma})")
         finally:
             if os.path.exists(montado):
                 os.remove(montado)
+
+        # E agora o que importa de verdade: repetir o laço do atualizador,
+        # passo a passo, como ele está escrito no local_ota_update.sh. Todas
+        # as minhas conferências anteriores eram invenção minha sobre o que
+        # o formato deveria ser, e por isso passaram enquanto o aparelho
+        # travava. Esta segue o programa que consome o arquivo.
+        lista = os.path.join(dir_ota, f"ota_md5_{nome}.{soma}")
+        if not os.path.isfile(lista):
+            raise Erro(f"{tipo}: there is no ota_md5_{nome}.{soma} — the "
+                       f"updater copies that file first and reads one md5 "
+                       f"per chunk from it")
+        with open(lista, encoding="ascii", errors="replace") as fh:
+            linhas = [l.strip() for l in fh]
+        linhas = [l for l in linhas if l]
+        if len(linhas) < len(pedacos):
+            raise Erro(f"{tipo}: the md5 list has {len(linhas)} entries for "
+                       f"{len(pedacos)} chunks. An empty or short list is "
+                       f"what leaves a device on the Upgrading screen: the "
+                       f"updater reads line 1, gets nothing, and gives up on "
+                       f"the very first chunk.")
+
+        anterior = soma
+        total = 0
+        for i in range(len(pedacos)):
+            esperado = os.path.join(dir_ota, f"{nome}.{i:04d}.{anterior}")
+            if not os.path.isfile(esperado):
+                raise Erro(f"{tipo}: the updater would look for "
+                           f"{os.path.basename(esperado)} and not find it")
+            real = md5(esperado)
+            if linhas[i] != real:
+                raise Erro(f"{tipo}: line {i+1} of the md5 list says "
+                           f"{linhas[i]} but chunk {i:04d} is {real}")
+            anterior = real
+            total += os.path.getsize(esperado)
+        if total < int(campos.get("img_size", "0")):
+            raise Erro(f"{tipo}: the chunks add up to {total}, less than the "
+                       f"declared {campos.get('img_size')} — the updater "
+                       f"loops until the total is reached and would never "
+                       f"get there")
+        print(f"  verified: {tipo} passes the updater's own loop "
+              f"({len(pedacos)} chunks, {total:,} bytes, md5 {soma})")
 
 
 def conferir_recipiente(entrada: str, saida: str) -> None:
@@ -591,9 +651,8 @@ def main() -> int:
         for n in list(os.listdir(dir_ota)):
             if n.startswith("ota_md5_rootfs.squashfs."):
                 os.remove(os.path.join(dir_ota, n))
-        partir(novo, dir_ota, "rootfs.squashfs")
-        open(os.path.join(dir_ota, f"ota_md5_rootfs.squashfs.{md5(novo)}"),
-             "w").close()
+        n = partir(novo, dir_ota, "rootfs.squashfs")
+        print(f"  {n} chunks and their md5 list written")
         # E o manifesto, que é quem o atualizador realmente lê.
         manifesto = os.path.join(dir_ota, "ota_update.in")
         if not os.path.isfile(manifesto):

@@ -127,6 +127,28 @@ check("e roda sobre o pacote PRONTO, nao sobre o rascunho",
 
 print()
 print("=" * 74)
+print("3c. a LISTA de md5 dos pedacos e escrita (era criada vazia)")
+print("=" * 74)
+# O ota_md5_<nome>.<md5 do inteiro> nao e uma marca: e um arquivo com o md5
+# de CADA pedaco, uma linha por pedaco. O atualizador copia esse arquivo e le
+# a linha i+1 para conferir o pedaco i. Eu o criava vazio, entao o `sed -n
+# "1p"` devolvia nada e ele desistia no primeiro pedaco — tela de
+# "Upgrading..." para sempre, duas vezes, no aparelho de duas pessoas.
+check("a lista de md5 e gravada com uma linha por pedaco",
+      'out.write("".join(s + "\\n" for s in somas))' in fonte)
+check("e nao ha mais nenhum arquivo ota_md5 criado vazio",
+      'f"ota_md5_rootfs.squashfs.{md5(novo)}"' not in fonte)
+check("a conferencia le a lista e compara pedaco a pedaco",
+      'linhas[i] != real' in fonte)
+check("e recusa uma lista curta ou vazia",
+      "len(linhas) < len(pedacos)" in fonte)
+check("ela refaz o encadeamento de nomes como o atualizador faz",
+      'f"{nome}.{i:04d}.{anterior}"' in fonte)
+check("e confere o total contra o img_size, como o laco dele",
+      'total < int(campos.get("img_size"' in fonte)
+
+print()
+print("=" * 74)
 print("4. os nomes longos sao conferidos pelos DOIS caminhos")
 print("=" * 74)
 # Nao se sabe por qual dos dois o atualizador le; entao os dois tem de
