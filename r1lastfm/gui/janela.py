@@ -200,6 +200,12 @@ class Painel(ttk.Frame):
         # funcionar, e precisa caber a explicação inteira mais o comando.
         self.lbl_boot = ttk.Label(c, text="", style="CardWarn.TLabel",
                                   wraplength=880, justify="left")
+        # O botão do remendo só existe quando ele é a resposta: aparece junto
+        # com o aviso, e some com ele. Um botão de "remendar firmware" sempre
+        # visível convida ao clique sem ler, e esta é a única coisa aqui que
+        # pode inutilizar um aparelho.
+        self.btn_firmware = ttk.Button(c, text=t("btn.firmware"),
+                                       command=self._remendar_firmware)
         self.lbl_versao = ttk.Label(c, text="", style="CardMuted.TLabel",
                                     wraplength=880, justify="left")
         self.lbl_versao.pack(anchor="w", pady=(8, 0))
@@ -455,8 +461,11 @@ class Painel(ttk.Frame):
         if s.instalado and s.no_init and s.init_roda is False:
             self.lbl_boot.configure(text=t("dev.sem_boot.ajuda"))
             self.lbl_boot.pack(anchor="w", pady=(10, 0), before=self.lbl_versao)
+            self.btn_firmware.pack(anchor="w", pady=(8, 0),
+                                   before=self.lbl_versao)
         else:
             self.lbl_boot.pack_forget()
+            self.btn_firmware.pack_forget()
 
     def _render_versao(self, s: AP.Situacao) -> None:
         if not s.instalado:
@@ -874,6 +883,68 @@ class Painel(ttk.Frame):
         self.app.run_async(work, on_done=lambda _s: self._ver_aparelho(),
                            on_error=self._erro,
                            busy_text=t("busy.iniciar"))
+
+    def _remendar_firmware(self) -> None:
+        """Gera um firmware com o gancho do init.sh, a partir do da pessoa.
+
+        O trabalho pesado é do ferramentas/remendar_firmware.py, que é quem
+        confere o resultado arquivo por arquivo. Aqui só se pergunta, se
+        escolhe e se mostra — e se avisa antes, porque instalar firmware é a
+        única coisa deste programa que não tem volta.
+        """
+        from tkinter import filedialog
+
+        if not W.confirm(self, t("fw.title"), t("fw.body"),
+                         ok_text=t("fw.ok"), danger=True):
+            return
+
+        entrada = filedialog.askopenfilename(
+            parent=self, title=t("fw.pick"),
+            filetypes=[("firmware (*.upt)", "*.upt"), ("*", "*")])
+        if not entrada:
+            return
+        saida = filedialog.asksaveasfilename(
+            parent=self, title=t("fw.save"), defaultextension=".upt",
+            initialfile="r1-autostart.upt",
+            filetypes=[("firmware (*.upt)", "*.upt")])
+        if not saida:
+            return
+        # O gerador se recusa a sobrescrever; o seletor já perguntou, então o
+        # que a pessoa respondeu ali é o que vale.
+        if os.path.exists(saida):
+            os.remove(saida)
+
+        runner, log = self.cfg.runner, self.log
+        # A ferramenta mora ao lado do pacote, não dentro dele.
+        raiz = os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))
+        script = os.path.join(raiz, "ferramentas", "remendar_firmware.py")
+        if not os.path.isfile(script):
+            W.show_error(self, t("fw.err.title"),
+                         t("fw.err.run"), script)
+            return
+
+        def work():
+            res = runner.posix(
+                f"python3 {runner.to_posix_path(script)} "
+                f"{runner.to_posix_path(entrada)} "
+                f"{runner.to_posix_path(saida)}",
+                mutating=True, timeout=1800)
+            if not res.ok:
+                saida_toda = (res.output or "")
+                if "missing tools" in saida_toda:
+                    raise InstallerError(t("fw.err.title"), t("fw.err.tools"))
+                raise InstallerError(t("fw.err.title"),
+                                     t("fw.err.run") + "\n\n" + saida_toda[-1500:])
+            return saida
+
+        def done(caminho) -> None:
+            log.ok(t("fw.done.title"))
+            W.show_error(self, t("fw.done.title"),
+                         t("fw.done", caminho=caminho))
+
+        self.app.run_async(work, on_done=done, on_error=self._erro,
+                           busy_text=t("fw.busy"))
 
     def _remover(self) -> None:
         adb = self._adb()

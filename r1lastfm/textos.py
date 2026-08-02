@@ -367,6 +367,149 @@ TEXTOS: dict[str, dict[str, str]] = {
               "firmware, que você depois grava pelo menu de atualização do "
               "player. Veja o README.",
     },
+    # O remendo de firmware, na tela. É a única coisa do programa que pode
+    # inutilizar um player, então o texto não economiza: diz o que vai
+    # acontecer, o que pode dar errado e qual é o caminho de volta, ANTES de
+    # abrir qualquer seletor de arquivo.
+    "btn.firmware": {
+        "en": "Fix auto-start…",
+        "pt": "Resolver o auto-start…",
+    },
+    "fw.title": {
+        "en": "Make the collector start on its own at boot",
+        "pt": "Fazer o coletor iniciar sozinho no boot",
+    },
+    "fw.body": {
+        "en": "Your firmware has no way to run anything at boot, so the "
+              "collector only runs when you start it. This adds the one "
+              "missing line to a copy of your firmware, which you then "
+              "install from the player's own update menu.\n\n"
+              "WHAT YOU NEED\n"
+              "The firmware file for your R1 — an r1.upt, the same file HiBy "
+              "publishes for updates. This program does not download it: you "
+              "supply it, and nothing is uploaded anywhere.\n\n"
+              "WHAT IT CHANGES\n"
+              "Exactly one file and one line. It adds, to hiby_player.sh, a "
+              "line that runs /usr/data/init.sh before the player starts — "
+              "the same hook modded firmwares already ship. Everything else "
+              "is copied through untouched, and that is checked: the new "
+              "package is unpacked again and all 4,718 files are compared "
+              "against the original, contents, permissions and ownership. If "
+              "anything but that one file moved, no package is written.\n\n"
+              "THE RISK, PLAINLY\n"
+              "Installing firmware cannot be undone from software. If the "
+              "wrong image goes on, the way back is to install a good one "
+              "from the player's menu — which needs a player that still "
+              "boots. This package was built and verified but has not been "
+              "installed on a device by its author.\n\n"
+              "BEFORE YOU DO IT\n"
+              "  • Download and keep the original r1.upt. That file is your "
+              "way back, and you want it on your computer before you need "
+              "it, not after.\n"
+              "  • Charge the player. A firmware install interrupted by a "
+              "flat battery is the bad case.\n"
+              "  • Do not use the cable for anything else while it installs.\n\n"
+              "If you would rather not: “Start now” does the same thing for "
+              "one session, every time you plug in, and costs nothing.",
+        "pt": "O seu firmware não tem como executar nada no boot, então o "
+              "coletor só roda quando você o inicia. Isto acrescenta a linha "
+              "que falta a uma cópia do seu firmware, que você depois instala "
+              "pelo menu de atualização do próprio player.\n\n"
+              "O QUE VOCÊ PRECISA\n"
+              "O arquivo de firmware do seu R1 — um r1.upt, o mesmo que a "
+              "HiBy publica para atualizações. Este programa não o baixa: "
+              "você o fornece, e nada é enviado para lugar nenhum.\n\n"
+              "O QUE MUDA\n"
+              "Exatamente um arquivo e uma linha. Acrescenta ao "
+              "hiby_player.sh uma linha que executa o /usr/data/init.sh antes "
+              "de o player subir — o mesmo gancho que os firmwares "
+              "modificados já trazem. Todo o resto é copiado sem alteração, e "
+              "isso é conferido: o pacote novo é desempacotado de volta e os "
+              "4.718 arquivos são comparados com o original, conteúdo, "
+              "permissão e dono. Se qualquer coisa além daquele arquivo tiver "
+              "mudado, nenhum pacote é gravado.\n\n"
+              "O RISCO, SEM RODEIOS\n"
+              "Instalar firmware não tem volta por software. Se a imagem "
+              "errada entrar, o caminho de volta é instalar uma boa pelo menu "
+              "do player — o que exige um player que ainda ligue. Este pacote "
+              "foi gerado e conferido, mas não foi instalado em nenhum "
+              "aparelho por quem o escreveu.\n\n"
+              "ANTES DE FAZER\n"
+              "  • Baixe e guarde o r1.upt original. Esse arquivo é a sua "
+              "volta, e é melhor tê-lo no computador antes de precisar dele.\n"
+              "  • Carregue o player. Uma instalação de firmware interrompida "
+              "por bateria vazia é o caso ruim.\n"
+              "  • Não use o cabo para mais nada durante a instalação.\n\n"
+              "Se preferir não mexer: o “Iniciar agora” faz o mesmo por uma "
+              "sessão, toda vez que você plugar, e não custa nada.",
+    },
+    "fw.ok": {
+        "en": "I have the original saved — continue",
+        "pt": "Tenho o original guardado — continuar",
+    },
+    "fw.pick": {
+        "en": "Choose the stock firmware file (r1.upt)",
+        "pt": "Escolha o arquivo de firmware de fábrica (r1.upt)",
+    },
+    "fw.save": {
+        "en": "Where to write the patched firmware",
+        "pt": "Onde gravar o firmware remendado",
+    },
+    "fw.busy": {
+        "en": "Patching the firmware — this takes a few minutes…",
+        "pt": "Remendando o firmware — isto leva alguns minutos…",
+    },
+    "fw.done.title": {
+        "en": "Patched firmware ready",
+        "pt": "Firmware remendado pronto",
+    },
+    "fw.done": {
+        "en": "Written to:\n{caminho}\n\nEvery check passed: exactly one file "
+              "differs from your original, it is still owned by root and "
+              "executable, and it is valid shell.\n\n"
+              "TO INSTALL IT\n"
+              "  1. Copy the file to the root of the R1's memory card (not "
+              "into a folder).\n"
+              "  2. On the player: System → Firmware update (or Local "
+              "update), and pick it.\n"
+              "  3. Let it finish without touching anything. It reboots on "
+              "its own.\n\n"
+              "After that the collector starts with the player, every time, "
+              "with no computer involved. Keep your original r1.upt.",
+        "pt": "Gravado em:\n{caminho}\n\nTodas as conferências passaram: "
+              "exatamente um arquivo difere do seu original, ele continua "
+              "pertencendo ao root e executável, e é shell válido.\n\n"
+              "PARA INSTALAR\n"
+              "  1. Copie o arquivo para a raiz do cartão de memória do R1 "
+              "(não dentro de uma pasta).\n"
+              "  2. No player: System → Firmware update (ou Local update), e "
+              "escolha-o.\n"
+              "  3. Deixe terminar sem mexer em nada. Ele reinicia sozinho.\n\n"
+              "Depois disso o coletor sobe junto com o player, sempre, sem "
+              "computador nenhum. Guarde o seu r1.upt original.",
+    },
+    "fw.err.title": {
+        "en": "The firmware was not patched",
+        "pt": "O firmware não foi remendado",
+    },
+    "fw.err.tools": {
+        "en": "This needs Linux tools that are not here: squashfs-tools, "
+              "genisoimage and p7zip-full.\n\nOn Windows they live in WSL, "
+              "which this program already uses to compile. Install them with:"
+              "\n\n    sudo apt install squashfs-tools genisoimage p7zip-full"
+              "\n\nThen try again. Nothing was changed.",
+        "pt": "Isto precisa de ferramentas de Linux que não estão aqui: "
+              "squashfs-tools, genisoimage e p7zip-full.\n\nNo Windows elas "
+              "ficam no WSL, que este programa já usa para compilar. Instale "
+              "com:\n\n    sudo apt install squashfs-tools genisoimage "
+              "p7zip-full\n\nDepois tente de novo. Nada foi alterado.",
+    },
+    "fw.err.run": {
+        "en": "The patcher refused to write a package. Nothing was changed, "
+              "and your original file was only read.",
+        "pt": "O remendador se recusou a gravar um pacote. Nada foi alterado, "
+              "e o seu arquivo original foi apenas lido.",
+    },
     "btn.iniciar": {
         "en": "Start now",
         "pt": "Iniciar agora",
