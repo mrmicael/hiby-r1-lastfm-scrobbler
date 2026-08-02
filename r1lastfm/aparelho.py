@@ -40,6 +40,11 @@ VERSAO_ARQ = DIR + "/versao"
 TRAVA = "/tmp/.r1sc.rodando"
 TRAVA_ANTIGA = DIR + "/.rodando"
 INIT = "/usr/data/init.sh"
+# Onde procurar o cartão, na mesma ordem que o daemon usa. Os três caminhos
+# são o mesmo cartão visto de lugares diferentes: /data é um link para
+# /usr/data, e alguns firmwares montam também em /mnt.
+CARTOES = ("/usr/data/mnt/sd_0", "/data/mnt/sd_0", "/mnt/sd_0")
+PASTA_SD = "r1lastfm"
 # Quem executa o init.sh — e o motivo de tudo isto existir.
 #
 # Nada no firmware DE FÁBRICA roda /usr/data/init.sh. Quem o roda é uma versão
@@ -54,10 +59,10 @@ LANCADOR = "/usr/bin/hiby_player.sh"
 
 # Sobe a cada mudança que valha reinstalar no aparelho. A tela compara com o
 # que está gravado lá e só oferece a atualização quando há diferença.
-VERSAO = 7
+VERSAO = 8
 # As versões que existem. O que cada uma trouxe está no catálogo de textos,
 # sob "novidade.<n>", porque isso aparece na tela e tem de estar traduzido.
-NOVIDADES = (7, 6, 5, 4, 3, 2, 1)
+NOVIDADES = (8, 7, 6, 5, 4, 3, 2, 1)
 
 
 def novidade(versao: int) -> str:
@@ -104,6 +109,8 @@ class Situacao:
 
     # Quantas o r1send ainda mandaria. -1 = ele não estava lá para responder.
     enviaveis: int = -1
+    # Caminho da planilha no cartão, vazio quando ela não existe.
+    csv_cartao: str = ""
 
     @property
     def pendentes(self) -> int:
@@ -148,6 +155,13 @@ def situacao(adb: Adb) -> Situacao:
         # que aplica as mesmas regras do envio.
         f"echo ENVIAVEIS=$([ -x {REMETENTE} ] && {REMETENTE} listar {FILA} "
         f"{ENVIADOS} 2>/dev/null | wc -l || echo -1); "
+        # Onde a planilha foi parar. A mesma lista de candidatos do daemon,
+        # na mesma ordem — quem perguntou "cadê o scrobbles.csv?" estava
+        # procurando num caminho que o aparelho nem usa.
+        f"for c in {' '.join(CARTOES)}; do "
+        f"  [ -f \"$c/{PASTA_SD}/scrobbles.csv\" ] && "
+        f"{{ echo \"CSV=$c/{PASTA_SD}/scrobbles.csv\"; break; }}; "
+        f"done; "
         f"echo ROWID=$(cat {ESTADO} 2>/dev/null || echo 0); "
         f"echo VERSAO=$(cat {VERSAO_ARQ} 2>/dev/null || echo 0); "
         f"grep -q '^AGORA=1' {CONF} 2>/dev/null && echo NP=1 || echo NP=0; "
@@ -201,6 +215,7 @@ def situacao(adb: Adb) -> Situacao:
         tocando_agora=vals.get("NP") == "1",
         init_roda=(True if vals.get("SUP") == "1"
                    else False if vals.get("SUP") == "0" else None),
+        csv_cartao=vals.get("CSV", "").strip(),
         ultimo_envio=vals.get("ULTIMO", "").strip(),
         detalhe=res.stdout.strip(),
     )
@@ -208,7 +223,8 @@ def situacao(adb: Adb) -> Situacao:
 
 def instalar(adb: Adb, log: Log, coletor_local: str, daemon_local: str, *,
              rapido: int = 15, lento: int = 60, agora: bool = False,
-             iniciar_no_boot: bool = True) -> None:
+             iniciar_no_boot: bool = True,
+             remetente_local: str = "") -> None:
     """Põe o coletor no aparelho e (opcionalmente) no boot."""
     if not os.path.isfile(coletor_local):
         raise InstallerError(t("ap.err.collector.title"),
@@ -220,6 +236,18 @@ def instalar(adb: Adb, log: Log, coletor_local: str, daemon_local: str, *,
     adb.mkdir(DIR)
     adb.push(coletor_local, BIN, mode="755")
     adb.push(daemon_local, DAEMON, mode="755")
+    # O r1send vai junto, sempre.
+    #
+    # Ele era instalado só com o envio por WiFi, porque é ele quem assina o
+    # lote. Só que é ele também quem escreve o scrobbles.csv do cartão — e
+    # quem instalou apenas o coletor ficava sem planilha nenhuma, sem nada na
+    # tela explicando por quê, enquanto o README prometia o arquivo. Foi
+    # exatamente esse o relato: "não tem scrobbles.csv no meu cartão".
+    #
+    # São 118 KB e nenhuma credencial; o que depende do WiFi são o curl, os
+    # certificados e a chave, que continuam onde estavam.
+    if remetente_local and os.path.isfile(remetente_local):
+        adb.push(remetente_local, REMETENTE, mode="755")
 
     # A configuração fica separada do script para que mexer nos tempos não
     # exija reenviar o daemon.

@@ -104,9 +104,14 @@ print("2. depois do lote, o espaco entre as linhas volta a mandar")
 print("=" * 74)
 # O daemon esta de pe. Tres faixas de 200s registradas a cada 20s so podem
 # ter sido puladas — e pulo nao e scrobble.
+#
+# O f1 no fim e o que o daemon escreve quando ve o audio parar. Sem ele a
+# terceira nao teria fim conhecido: a linha do historico entra quando a faixa
+# COMECA, entao a ultima de uma sequencia so fecha quando o audio para.
 fila = (f"b1\t{T0}\n" + f"a1\t{COLETA}\t1\n" + linha_p1(200, COLETA, "Ouvida", DUR) + "\n"
         + "".join(linha_p1(201 + i, COLETA + 20 * (i + 1), f"Pulada {i+1}", DUR) + "\n"
-                  for i in range(3)))
+                  for i in range(3))
+        + f"f1\t{COLETA + 20 * 4}\n")
 linhas = rodar(fila, "pulos")
 recup = [l for l in linhas if l["track"] == "Ouvida"]
 pulos = [l for l in linhas if l["track"].startswith("Pulada")]
@@ -123,17 +128,23 @@ print()
 print("=" * 74)
 print("3. sem o marcador a1, nada muda (fila de uma versao antiga)")
 print("=" * 74)
-# Filas gravadas antes desta correcao nao tem a1. O comportamento tem de ser
-# exatamente o de antes: sem informacao, o r1send nao inventa nada.
-fila = f"b1\t{T0}\n" + "".join(
+# Filas gravadas antes desta correcao nao tem a1. Sem informacao nenhuma, o
+# r1send nao pode inventar: tres linhas com o mesmo carimbo nao dizem quanto
+# cada faixa tocou, e o espaco entre elas e zero. Nenhuma sobe.
+#
+# O i1 fecha a ultima. Sem ele o relogio a fecharia (uma faixa velha o
+# bastante cabe inteira no intervalo ate agora), o que e razoavel mas nao e o
+# que este teste quer medir.
+fila = (f"b1\t{T0}\n" + "".join(
     linha_p1(300 + i, COLETA, f"Antiga {i+1}", DUR) + "\n" for i in range(3))
+    + f"i1\t{COLETA + 5}\n")
 linhas = rodar(fila, "antiga")
 check("continuam com o mesmo carimbo",
       len({l["started_at_epoch"] for l in linhas}) < 3,
       str([l["started_at_epoch"] for l in linhas]))
 check("e o r1send nao promove nenhuma",
-      all(l["status"] == "skipped" for l in linhas[1:]),
-      str([(l["track"], l["status"]) for l in linhas]))
+      all(l["status"] == "skipped" for l in linhas),
+      str([(l["track"], l["seconds_heard"], l["status"]) for l in linhas]))
 
 print()
 print("=" * 74)

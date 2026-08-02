@@ -390,10 +390,28 @@ TEXTOS: dict[str, dict[str, str]] = {
         "pt": " ({descartadas} foram puladas ou curtas demais para contar.)",
     },
     "dev.plug_in": {
-        "en": "{mensagem}\n\nPlug the R1 in and set "
-              "System → USB working mode → Device.",
-        "pt": "{mensagem}\n\nLigue o R1 no cabo e ponha "
-              "System → USB working mode → Device.",
+        "en": "{mensagem}\n\nTwo things are needed, and the first one is "
+              "hidden:\n"
+              "  1. turn ADB on — System → About, tap it ten times, then "
+              "enable the developer/ADB switch that appears;\n"
+              "  2. System → USB working mode → Device.",
+        "pt": "{mensagem}\n\nDuas coisas são necessárias, e a primeira é "
+              "escondida:\n"
+              "  1. ligue o ADB — System → About, toque dez vezes, e ligue o "
+              "interruptor de desenvolvedor/ADB que aparece;\n"
+              "  2. System → USB working mode → Device.",
+    },
+    # Onde a planilha e o registro vão parar. Sem isto a pessoa procura o
+    # arquivo no lugar errado e conclui que o recurso não existe.
+    "dev.card": {
+        "en": "  Log and spreadsheet on the card: {caminho}",
+        "pt": "  Registro e planilha no cartão: {caminho}",
+    },
+    "dev.card.none": {
+        "en": "  No writable memory card found, so no spreadsheet is written "
+              "— the queue still works normally.",
+        "pt": "  Nenhum cartão de memória gravável encontrado, então não há "
+              "planilha — a fila continua funcionando normalmente.",
     },
     "busy.device": {
         "en": "Asking the device…",
@@ -1105,6 +1123,26 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.8": {
+        "en": "the listened time is now measured instead of guessed. The "
+              "player writes its history row when a track STARTS, not when it "
+              "ends — checked live on the device — so the gap between two "
+              "rows is how long the FIRST one played. Crediting it to the "
+              "second is what made a track that had barely started show up as "
+              "played in full, while the one actually listened to showed 0s. "
+              "Also: the spreadsheet program now installs with the collector, "
+              "so the card's scrobbles.csv no longer depends on turning Wi-Fi "
+              "sending on",
+        "pt": "o tempo ouvido passa a ser medido, não estimado. O player "
+              "grava a linha do histórico quando a faixa COMEÇA, não quando "
+              "acaba — conferido ao vivo no aparelho —, então o espaço entre "
+              "duas linhas é quanto a PRIMEIRA tocou. Creditá-lo à segunda "
+              "era o que fazia uma faixa recém-começada aparecer como ouvida "
+              "inteira, enquanto a de fato ouvida ficava com 0s. Também: o "
+              "programa da planilha passa a ser instalado junto com o "
+              "coletor, então o scrobbles.csv do cartão não depende mais de "
+              "ligar o envio por WiFi",
+    },
     "novidade.7": {
         "en": "an album listened to while the collector was stopped is no "
               "longer recorded as 0 seconds — the tracks it finds on waking "
@@ -1815,17 +1853,29 @@ TEXTOS: dict[str, dict[str, str]] = {
         "en": "Failed to send {arquivo} to the device.",
         "pt": "Falha ao enviar {arquivo} para o aparelho.",
     },
+    # A ordem aqui não é decorativa: o passo do ADB é o que trava quase todo
+    # mundo, e é o menos adivinhável. Uma pessoa passou doze minutos presa
+    # nele antes de descobrir sozinha que precisava tocar dez vezes em
+    # "About" — e o texto antigo só falava do modo USB, que ela já tinha
+    # posto certo.
     "adb.usb_help": {
         "en": "Check that:\n"
-              "  • the R1 is on and connected by the cable;\n"
+              "  • ADB is turned on. This is the one that catches everyone: "
+              "on the R1, go to System → About and tap it ten times. A "
+              "developer/ADB switch appears — turn it on. Setting the USB "
+              "mode alone is not enough;\n"
               "  • on the device, System → USB working mode is set to "
               "\"Device\";\n"
+              "  • the R1 is on and connected by the cable;\n"
               "  • the cable carries data (many charge-only cables do not).\n\n"
               "Then click check again.",
         "pt": "Confira se:\n"
-              "  • o R1 está ligado e conectado pelo cabo;\n"
+              "  • o ADB está ligado. Este é o que pega todo mundo: no R1, vá "
+              "em System → About e toque dez vezes. Aparece um interruptor de "
+              "desenvolvedor/ADB — ligue-o. Só pôr o modo USB não basta;\n"
               "  • no aparelho, System → USB working mode está em "
               "\"Device\";\n"
+              "  • o R1 está ligado e conectado pelo cabo;\n"
               "  • o cabo transmite dados (muitos cabos só carregam).\n\n"
               "Depois clique em verificar de novo.",
     },

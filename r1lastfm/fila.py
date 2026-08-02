@@ -36,12 +36,19 @@ from .lastfm import FULL_PLAY_SECONDS, MIN_TRACK_SECONDS, Play
 
 # Quando a linha entra no banco em relação à faixa.
 #
-# Medido num R1 de verdade (medir_lastfm.py): numa faixa de 3min14 a gravação
-# apareceu 194 s depois do play — a duração exata. O player grava no FIM.
-# Esse é o caso bom: a linha só existe porque a faixa terminou.
+# A linha entra quando a faixa COMEÇA. Observado ao vivo no aparelho, com o
+# player tocando: às 08:49:41 a faixa mudou e a última linha do HISTORY_TABLE
+# virou a faixa nova no mesmo segundo, com o pcm ainda aberto e a música
+# tocando por mais quarenta e cinco.
+#
+# O padrão era FIM, com base numa medição antiga que dizia ter visto a linha
+# aparecer 194 s depois do play, numa faixa de 3min14. Aquela medição estava
+# olhando para a linha da faixa ANTERIOR: 194 s é a duração da faixa que
+# acabou de tocar, não o atraso da que começou. O erro era sutil e custou
+# caro — enquanto durou, o tempo ouvido saía atribuído à faixa errada.
 INICIO = "inicio"   # a linha aparece quando a faixa começa
-FIM = "fim"         # a linha aparece quando a faixa termina
-PADRAO = FIM
+FIM = "fim"         # a linha aparece quando a faixa termina (não é o caso)
+PADRAO = INICIO
 
 # O que fazer com a última faixa de uma sessão, cujo tempo de escuta ninguém
 # registrou.
@@ -123,7 +130,7 @@ def ler(texto: str) -> tuple[list[Registro], int]:
         campos = linha.split("\t")
         tipo = campos[0]
         try:
-            if tipo in ("b1", "i1", "m1", "c1"):
+            if tipo in ("b1", "f1", "i1", "m1", "c1"):
                 regs.append(Registro(tipo=tipo, hora=int(campos[1])))
             elif tipo == "p1":
                 # p1 rowid hora artista titulo album album_artista dur ano path
@@ -206,10 +213,11 @@ def _uma_sessao(sessao, out, modo, ultima, enviados, agora, suspeito_ate,
     toques = [r for r in sessao if r.tipo == "p1"]
     if not toques:
         return
-    # A hora em que a sessão parou: o marcador i1, ou o último m1, ou nada.
+    # A hora em que a sessão parou: o f1 (o áudio parou, medido), ou o i1, ou
+    # o último m1, ou nada.
     fechamento = 0
     for r in sessao:
-        if r.tipo in ("i1", "m1"):
+        if r.tipo in ("f1", "i1", "m1"):
             fechamento = max(fechamento, r.hora)
 
     # `abertura` vem do marcador b1. Se por algum motivo não houver um — uma
@@ -245,23 +253,45 @@ def _uma_sessao(sessao, out, modo, ultima, enviados, agora, suspeito_ate,
             span = min(reg.duracao, folga) if reg.duracao else folga
             certeza = True
         else:
-            # A linha entraria no início da faixa: aí o tempo ouvido é o
-            # intervalo até a linha seguinte.
-            inicio = reg.hora
-            if i + 1 < len(toques):
-                span = toques[i + 1].hora - reg.hora
+            # A linha entra no início da faixa, então a hora dela É o começo,
+            # e o tempo ouvido é o intervalo até a linha seguinte — que é
+            # quando a faixa parou de tocar, porque foi quando outra começou.
+            #
+            # O Tidal continua sendo o caso feliz: lá o daemon vê a troca e
+            # diz o começo exato, sem depender de vizinho nenhum.
+            if reg.inicio_dito and reg.inicio_dito <= reg.hora:
+                inicio = reg.inicio_dito
+                span = reg.hora - reg.inicio_dito
                 certeza = True
             else:
-                # A última da sessão. O most_played, se foi tocado depois
-                # dela, é o melhor palpite de quando ela acabou.
-                depois = [r.hora for r in sessao
-                          if r.tipo == "m1" and r.hora > reg.hora]
-                if depois:
-                    span = min(depois) - reg.hora
+                inicio = reg.hora
+                if i + 1 < len(toques):
+                    seguinte = toques[i + 1]
+                    span = ((seguinte.inicio_dito or seguinte.hora)
+                            - reg.hora)
                     certeza = True
                 else:
-                    span = max(0, fechamento - reg.hora)
-                    certeza = False
+                    # A última da sessão não tem seguinte que a feche. O f1
+                    # diz a hora em que o áudio parou — é medido. O i1 e o m1
+                    # são tetos mais frouxos. Sem nenhum deles, ela fica em
+                    # aberto: mandar cedo demais é justamente o erro que
+                    # fazia uma faixa recém-começada aparecer como ouvida
+                    # por inteiro.
+                    depois = [r.hora for r in sessao
+                              if r.tipo in ("f1", "i1", "m1")
+                              and r.hora > reg.hora]
+                    if depois:
+                        span = min(depois) - reg.hora
+                        certeza = True
+                    elif reg.duracao and agora - reg.hora >= reg.duracao:
+                        # Nenhum marcador, mas já passou tempo de sobra para a
+                        # faixa ter cabido inteira. É o caso das filas
+                        # gravadas antes de o f1 existir.
+                        span = reg.duracao
+                        certeza = False
+                    else:
+                        span = 0
+                        certeza = False
 
         # Ninguém ouve mais do que a faixa dura.
         if reg.duracao:

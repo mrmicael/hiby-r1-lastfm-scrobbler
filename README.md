@@ -419,13 +419,17 @@ cases:
   before the scrobbler block; the program inserts the block **before** the
   first `exit` for exactly this reason.
 * **“I listened to a whole album and it logged 0 seconds”** / **“a track counted
-  as fully played the moment it started”** — fixed in version 7. The player's
-  history table stores no timestamps at all, so every track the collector found
-  in one sweep used to get stamped with the same second: the second one onwards
-  came out with a zero-length listen, and the first one got credited against
-  the whole gap since startup. The collector now marks what was already in the
-  database when it woke up, and those tracks get spread over real times instead.
-  Update the device (card 3) to get it.
+  as fully played the moment it started”** — fixed in version 8. The player
+  writes its history row when a track **starts**, not when it ends (watched
+  live on the device: the row changed the same second the track did, with
+  audio still playing for another 45s). The code assumed the opposite, so the
+  gap between two rows — which is how long the *first* one played — was being
+  credited to the *second*. Update the device (card 3) to get it.
+* **“there is no scrobbles.csv on my card”** — fixed in version 8. The program
+  that writes it only got installed together with Wi-Fi sending, so if you set
+  up the collector over the cable and stopped there, no spreadsheet was ever
+  written. It now ships with the collector, and card 3 shows you the exact path
+  on the card.
 * **“automatic sending never sends”** — the R1 does not turn Wi-Fi on by
   itself. Turn it on and wait up to twelve minutes, or use *Send now (test)*.
 * **“old scrobbles do not go up”** — Last.fm refuses timestamps older than 14

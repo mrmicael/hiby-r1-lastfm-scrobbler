@@ -140,16 +140,16 @@ def p1(rid, hora, art, tit, dur, alb="Alb"):
     return f"p1\t{rid}\t{hora}\t{art}\t{tit}\t{alb}\t\t{dur}\t2020\ta:\\x.flac\t"
 
 
-# A hora de cada p1 e o FIM da faixa (medido no R1). O que separa uma faixa
-# ouvida de uma pulada e a folga desde a linha ANTERIOR.
+# A hora de cada p1 e o COMECO da faixa (observado ao vivo no R1). O que
+# separa uma faixa ouvida de uma pulada e o espaco ate a linha SEGUINTE.
 with open(destino, "w", encoding="utf-8", newline="\n") as fh:
     fh.write("\n".join([
         f"b1\t{T0}",
-        p1(1, T0 + 260, "yui", "Again", 257),            # folga 260: inteira
-        p1(2, T0 + 500, "FLOW", "Go!!!", 240),           # folga 240: inteira
-        p1(3, T0 + 540, "Pulada", "Pulei em 40s", 300),  # folga 40: fora
-        p1(4, T0 + 780, "TOP", "Migraine", 238),         # folga 240: inteira
-        f"i1\t{T0 + 780}",
+        p1(1, T0 + 3,   "yui", "Again", 257),            # tocou 257: inteira
+        p1(2, T0 + 260, "FLOW", "Go!!!", 240),           # tocou 240: inteira
+        p1(3, T0 + 500, "Pulada", "Pulei em 40s", 300),  # tocou 40: fora
+        p1(4, T0 + 540, "TOP", "Migraine", 238),         # tocou 238: inteira
+        f"f1\t{T0 + 778}",
     ]) + "\n")
 
 cfg.gravar(chave_sessao="chavefalsa123", usuario="fulano")
@@ -176,13 +176,15 @@ print()
 print("=" * 74)
 print("5. a hora mostrada e a de INICIO da faixa, nao a da gravacao")
 print("=" * 74)
-# O aparelho grava no fim; a tela tem de mostrar quando a musica comecou.
+# A linha do historico entra quando a faixa comeca, entao a hora dela ja e a
+# de inicio — e e essa que a tela mostra e que vai para o Last.fm. O errado
+# de antes era mostrar a linha MENOS a duracao, uma faixa inteira mais cedo.
 vals = [win.tree.item(i, "values") for i in win.tree.get_children()]
 again = [v for v in vals if v[2] == "Again"]
 check("Again aparece", bool(again), str([v[2] for v in vals]))
 if again:
-    esperado = time.strftime("%d/%m %H:%M", time.localtime(T0 + 260 - 257))
-    check("hora = fim menos duracao", again[0][0] == esperado,
+    esperado = time.strftime("%d/%m %H:%M", time.localtime(T0 + 3))
+    check("a hora e a da linha, que ja e o inicio", again[0][0] == esperado,
           f"tela={again[0][0]} esperado={esperado}")
     check("coluna de tempo mostra ouvido/total", again[0][4] == "4:17/4:17",
           again[0][4])

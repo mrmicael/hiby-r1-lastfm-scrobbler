@@ -427,6 +427,10 @@ class Painel(ttk.Frame):
                             pendentes=s.pendentes))
             if s.descartadas:
                 partes.append(t("dev.discarded", descartadas=s.descartadas))
+            # Onde a planilha está — ou por que não há uma. Perguntaram "cadê
+            # o scrobbles.csv?" e a tela não dizia nada a respeito.
+            partes.append(t("dev.card", caminho=s.csv_cartao)
+                          if s.csv_cartao else t("dev.card.none"))
             self.lbl_dispositivo.configure(text="  ".join(partes))
             self._render_boot(s)
             self._render_versao(s)
@@ -832,8 +836,13 @@ class Painel(ttk.Frame):
             adb.start_server()
             adb.require_device()
             coletor = self._programa("r1collect", "collector.c", "r1collect")
+            # O remetente vai junto porque é ele quem escreve o
+            # scrobbles.csv do cartão — nada a ver com WiFi. Ver o comentário
+            # em aparelho.instalar.
+            remetente = self._programa("r1send", "r1send.c", "r1send")
             AP.instalar(adb, log, coletor, daemon, rapido=rapido, lento=lento,
-                        agora=quer_agora, iniciar_no_boot=True)
+                        agora=quer_agora, iniciar_no_boot=True,
+                        remetente_local=remetente)
             AP.iniciar_agora(adb, log)
             return AP.situacao(adb)
 

@@ -95,19 +95,20 @@ print()
 print("=" * 74)
 print("2. a MESMA fila, escolhida pelo C e pelo Python")
 print("=" * 74)
-# No modo FIM a linha entra quando a faixa ACABA, entao a hora de cada p1 e o
-# fim dela. O que denuncia uma faixa pulada e a linha aparecer cedo demais em
-# relacao a anterior: nao houve espaco no relogio para ela ter tocado inteira.
+# A linha entra quando a faixa COMECA, entao a hora de cada p1 e o comeco
+# dela, e o espaco ate a linha SEGUINTE e quanto ela tocou. Uma faixa pulada
+# se denuncia por ter a proxima linha logo em seguida.
 FILA = "\n".join([
     f"b1\t{T0}",
-    p1(1, T0 + 260,  "yui", "Again", 257),                 # +260: inteira
-    p1(2, T0 + 500,  "FLOW", "Go!!!", 240),                # +240: inteira
-    p1(3, T0 + 540,  "Pulada", "Pulei em 40s", 300),       # +40 de 300: fora
-    p1(4, T0 + 905,  "TK from Ling tosite sigure",
-       "Acoustic Installation", 362),                      # +365: inteira
-    p1(5, T0 + 1096, "SUPER JUNIOR", "라라라라 Be My Girl", 191),
-    p1(6, T0 + 1640, "Legião Urbana", "Faroeste Caboclo", 540),
-    f"m1\t{T0 + 1640}",
+    p1(1, T0 + 3,    "yui", "Again", 257),                 # tocou 257: inteira
+    p1(2, T0 + 260,  "FLOW", "Go!!!", 240),                # tocou 240: inteira
+    p1(3, T0 + 500,  "Pulada", "Pulei em 40s", 300),       # tocou 40 de 300
+    p1(4, T0 + 540,  "TK from Ling tosite sigure",
+       "Acoustic Installation", 362),                      # tocou 365: inteira
+    p1(5, T0 + 905,  "SUPER JUNIOR", "라라라라 Be My Girl", 191),
+    p1(6, T0 + 1096, "Legião Urbana", "Faroeste Caboclo", 540),
+    # O daemon viu o audio parar: a ultima tocou 544s dos 540 dela.
+    f"f1\t{T0 + 1640}",
     f"i1\t{T0 + 1640}",
 ]) + "\n"
 f_fila = arq("rs_fila.tsv", FILA)
@@ -130,23 +131,24 @@ check("a pulada ficou de fora nos dois",
       "Pulei em 40s" not in [x[1] for x in c]
       and "Pulei em 40s" not in [x[1] for x in py],
       f"C={[x[1] for x in c]}")
-# A hora que vai para o Last.fm tem de ser o INICIO da faixa. Como a fila
-# guarda o FIM, a conferencia e direta: inicio == fim - duracao.
+# A hora que vai para o Last.fm tem de ser o INICIO da faixa — e a fila ja
+# guarda o inicio, porque a linha do historico entra quando a faixa comeca.
+# Antes daqui saia `hora - duracao`, uma faixa inteira ANTES do comeco.
 # campos da fila: p1 rowid hora artista titulo album aa dur ano path
 TAB = chr(9)
-fim_de = {}
+hora_de = {}
 for l in FILA.splitlines():
     if l.startswith("p1"):
         cs = l.split(TAB)
-        fim_de[int(cs[1])] = int(cs[2])
+        hora_de[int(cs[1])] = int(cs[2])
 ok_horas = True
 for linha in linhas_c:
     rid, inicio, dur = int(linha[0]), int(linha[1]), int(linha[5])
-    if inicio != fim_de[rid] - dur:
+    if inicio != hora_de[rid]:
         ok_horas = False
-        print(f"      rowid {rid}: inicio={inicio}, esperado "
-              f"{fim_de[rid] - dur} (fim {fim_de[rid]} menos {dur}s)")
-check("a hora enviada e o INICIO (fim menos duracao)", ok_horas,
+        print(f"      rowid {rid}: inicio={inicio}, esperado {hora_de[rid]} "
+              f"(o errado de antes seria {hora_de[rid] - dur})")
+check("a hora enviada e a da linha, que ja e o inicio", ok_horas,
       f"{len(linhas_c)} faixas conferidas")
 
 print()

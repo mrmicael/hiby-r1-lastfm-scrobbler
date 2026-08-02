@@ -416,12 +416,16 @@ casos comuns:
   bloco do scrobbler; o programa insere o bloco **antes** do primeiro `exit`
   justamente por isso.
 * **“ouvi um álbum inteiro e registrou 0 segundos”** / **“contou como ouvida
-  inteira assim que começou”** — corrigido na versão 7. O histórico do player
-  não guarda hora nenhuma, então todas as faixas que o coletor achava numa
-  varredura levavam o mesmo segundo: da segunda em diante saía com tempo ouvido
-  zero, e a primeira levava crédito por todo o buraco desde a partida. Agora o
-  coletor marca o que já estava no banco quando acordou, e essas faixas recebem
-  horas reais. Atualize o aparelho (cartão 3) para receber a correção.
+  inteira assim que começou”** — corrigido na versão 8. O player grava a linha
+  do histórico quando a faixa **começa**, não quando acaba (observado ao vivo
+  no aparelho: a linha mudou no mesmo segundo em que a faixa mudou, com o áudio
+  ainda tocando por mais 45s). O código assumia o contrário, então o espaço
+  entre duas linhas — que é quanto a *primeira* tocou — ia parar na *segunda*.
+  Atualize o aparelho (cartão 3) para receber a correção.
+* **“não tem scrobbles.csv no meu cartão”** — corrigido na versão 8. O programa
+  que escreve a planilha só era instalado junto com o envio por WiFi; quem
+  montou o coletor pelo cabo e parou por aí nunca teve planilha nenhuma. Agora
+  ele vai junto com o coletor, e o cartão 3 mostra o caminho exato do arquivo.
 * **“o envio automático não manda”** — o R1 não liga o WiFi sozinho. Ligue-o no
   aparelho e espere até doze minutos, ou use *Enviar agora (teste)*.
 * **“scrobbles antigos não sobem”** — o Last.fm recusa timestamps de mais de 14

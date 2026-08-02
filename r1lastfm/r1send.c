@@ -238,6 +238,56 @@ static void apara(char *s)
  *   - b1 corta a sessão, porque um reinício não é uma pausa entre músicas;
  *   - c1 marca que o relógio estava errado dali para trás.
  */
+/* Quando a faixa da posição i parou de tocar.
+ *
+ * Quase sempre a resposta é trivial e exata: parou quando a seguinte começou.
+ * O caso que dá trabalho é a última de cada sessão, que não tem seguinte —
+ * ela pode estar tocando agora, pode ter sido pausada, ou o aparelho pode ter
+ * sido desligado no meio dela. Em ordem de confiança:
+ *
+ *   f1  o daemon viu o áudio parar nesta hora. É medido, não deduzido.
+ *   i1  depois desta hora nada mais aconteceu. Serve de teto: a faixa não
+ *       pode ter passado dali, porque o daemon teria notado.
+ *   b1  a sessão seguinte abriu. Entre uma e outra houve um desligamento, e
+ *       o mais honesto é fechar a faixa onde a sessão fechou.
+ *
+ * Sem nenhum dos três a faixa fica em aberto (devolve 0) e não é enviada
+ * ainda. Isso é de propósito: a leitura seguinte da fila já vai ter o
+ * marcador, e mandar cedo demais é o erro que estava sendo cometido.
+ */
+static long fim_da_faixa(const Fila *f, int i, const long *fecha, int nfecha,
+                         const long *abertura, long agora_ref)
+{
+    const Exec *e = &f->v[i];
+    long teto = 0;
+    int k;
+
+    if (i + 1 < f->n && f->v[i+1].sessao == e->sessao)
+        return f->v[i+1].inicio_dito > 0 ? f->v[i+1].inicio_dito
+                                         : f->v[i+1].visto;
+
+    /* O menor marcador de fechamento posterior a esta faixa. */
+    for (k = 0; k < nfecha; k++)
+        if (fecha[k] > e->visto && (teto == 0 || fecha[k] < teto))
+            teto = fecha[k];
+
+    /* A abertura da sessão seguinte também fecha esta. */
+    if (e->sessao + 1 < 64 && abertura[e->sessao + 1] > e->visto
+        && (teto == 0 || abertura[e->sessao + 1] < teto))
+        teto = abertura[e->sessao + 1];
+
+    if (teto > 0)
+        return teto;
+
+    /* Última faixa da última sessão, sem marcador: só o relógio ajuda, e só
+     * quando já passou tempo suficiente para a faixa ter cabido. Enquanto
+     * não passou, ela continua em aberto. */
+    if (agora_ref > 0 && e->duracao > 0
+        && agora_ref - e->visto >= e->duracao)
+        return e->visto + e->duracao;
+    return 0;
+}
+
 static int carregar(const char *caminho, Fila *f)
 {
     FILE *fh = fopen(caminho, "r");
@@ -245,6 +295,7 @@ static int carregar(const char *caminho, Fila *f)
     int sessao = 0;
     int recuperar = 0;   /* quantas linhas ainda faltam do lote do a1 */
     int i, j;
+    long agora_ref = (long)time(0);
     long fecha[256];
     int nfecha = 0;
     /* Quando cada sessão abriu, para a primeira faixa dela ter um limite. */
@@ -275,11 +326,12 @@ static int carregar(const char *caminho, Fila *f)
             continue;
         }
         if (!strcmp(c[0], "c1")) { f->suspeito_ate = atol(c[1]); continue; }
-        if (!strcmp(c[0], "m1") || !strcmp(c[0], "i1")) {
-            /* No modo FIM estes marcadores não entram na conta: a linha da
-             * faixa só existe porque ela acabou, então não há a incerteza da
-             * "última da sessão" que eles resolviam. Ficam guardados porque
-             * são úteis para diagnóstico. */
+        if (!strcmp(c[0], "f1") || !strcmp(c[0], "i1")
+            || !strcmp(c[0], "m1")) {
+            /* Horas em que se sabe que a faixa aberta já não estava tocando.
+             * O f1 é o bom: o daemon viu o áudio parar. O i1 e o m1 são
+             * tetos mais frouxos, mas melhores do que deixar a última faixa
+             * de uma sessão sem fechamento nenhum. */
             if (nfecha < 256) fecha[nfecha++] = atol(c[1]);
             continue;
         }
@@ -309,7 +361,6 @@ static int carregar(const char *caminho, Fila *f)
         }
     }
     fclose(fh);
-    (void)fecha; (void)nfecha;
 
     /* O lote que o daemon encontrou ao acordar precisa de horas inventadas —
      * mas inventadas com critério.
@@ -352,34 +403,57 @@ static int carregar(const char *caminho, Fila *f)
         e->inicio_dito = e->visto - d;
     }
 
-    /* A linha entra quando a faixa acaba, então a hora de início é a da
-     * gravação menos a duração, e o tempo ouvido não pode passar do espaço
-     * que houve desde o evento anterior da mesma sessão. */
+    /* A linha do histórico entra quando a faixa COMEÇA, não quando acaba.
+     *
+     * Este arquivo inteiro assumiu o contrário desde o primeiro dia, e a
+     * conta saía deslocada em uma faixa. Foi observado ao vivo no aparelho:
+     * às 08:49:41 o player trocou para outra faixa e a última linha do
+     * histórico virou aquela faixa no mesmo instante, com o pcm ainda aberto
+     * e a música tocando por mais quarenta e cinco segundos.
+     *
+     * Duas coisas seguem disso, e as duas foram relatadas por quem usou:
+     *
+     *   - a hora mandada ao Last.fm era `visto - duracao`, ou seja, uma faixa
+     *     inteira ANTES de a faixa ter começado;
+     *   - o espaço entre duas linhas é quanto a ANTERIOR tocou, não a atual.
+     *     Creditá-lo à atual dava "esta faixa nem terminou e já aparece como
+     *     ouvida por inteiro", enquanto a de verdade ouvida — a primeira da
+     *     sessão, que não tinha anterior — ficava com zero.
+     *
+     * Com o modelo certo não há mais estimativa nenhuma no meio do caminho: a
+     * hora da linha É o começo da faixa (a menos do atraso do laço, no
+     * máximo uma volta), e o começo da seguinte é o fim desta. Uma faixa
+     * pulada aparece sozinha: o espaço até a próxima é curto, e a regra da
+     * metade a descarta.
+     *
+     * Só a ÚLTIMA faixa de cada sessão não tem "próxima" que a feche. Para
+     * ela o daemon manda o marcador f1 com a hora em que o áudio parou; sem
+     * ele sobra o i1 ("depois disto nada mais aconteceu"), e sem os dois ela
+     * fica em aberto até a próxima leitura da fila.
+     */
     for (i = 0; i < f->n; i++) {
         Exec *e = &f->v[i];
-        long anterior = 0;
-        long folga;
+        long fim;
 
-        if (i > 0 && f->v[i-1].sessao == e->sessao)
-            anterior = f->v[i-1].visto;
-        else
-            anterior = abertura[e->sessao < 64 ? e->sessao : 0];
-
+        /* O Tidal continua sendo o caso feliz: lá o daemon vê a troca de
+         * faixa e diz o começo exato, então nada precisa ser deduzido. */
         if (e->inicio_dito > 0 && e->inicio_dito <= e->visto) {
-            /* Sabemos o começo e o fim: o tempo ouvido é a subtração, sem
-             * depender de qual foi o evento anterior. */
             e->inicio = e->inicio_dito;
-            folga = e->visto - e->inicio_dito;
+            fim = e->visto;
         } else {
-            e->inicio = (e->duracao > 0) ? (e->visto - e->duracao) : e->visto;
-            folga = anterior > 0 ? (e->visto - anterior) : e->duracao;
+            e->inicio = e->visto;
+            fim = fim_da_faixa(f, i, fecha, nfecha, abertura, agora_ref);
         }
-        if (folga < 0) folga = 0;
 
-        if (e->duracao > 0)
-            e->ouviu = (folga < e->duracao) ? folga : e->duracao;
-        else
-            e->ouviu = folga;
+        if (fim <= e->inicio) {
+            /* Ainda tocando, ou o fim é desconhecido: sem tempo ouvido. A
+             * linha fica na fila e a leitura seguinte já a fecha. */
+            e->ouviu = 0;
+            continue;
+        }
+        e->ouviu = fim - e->inicio;
+        if (e->duracao > 0 && e->ouviu > e->duracao)
+            e->ouviu = e->duracao;
     }
     return 1;
 }

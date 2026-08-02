@@ -149,6 +149,8 @@ PASTA_SD=r1lastfm
 sd=""
 LOG_SD=""
 CSV_SD=""
+# Para o aviso de "sem remetente" sair uma vez, e não a cada volta do laço.
+avisou_sem_remetente=0
 # O registro no cartão é cortado quando passa disto, guardando a metade mais
 # recente. Um log que cresce para sempre num cartão é um bug com atraso.
 LOG_SD_MAX=262144
@@ -296,8 +298,19 @@ registrar() {
 # já sabe reconstruir a fila e decidir o que cada faixa virou.
 atualizar_csv() {
     [ -n "$CSV_SD" ] || return 0
-    [ -x "$REMETENTE" ] || return 0
     [ -s "$FILA" ] || return 0
+    if [ ! -x "$REMETENTE" ]; then
+        # Sem o r1send não há planilha, e ficar calado sobre isso foi
+        # exatamente o que gerou o relato "não tem scrobbles.csv no meu
+        # cartão". A partir da v8 ele é instalado junto com o coletor; esta
+        # mensagem é para quem ainda está com uma instalação antiga.
+        if [ "$avisou_sem_remetente" != 1 ]; then
+            avisou_sem_remetente=1
+            registrar "sem $REMETENTE: a planilha nao pode ser escrita." \
+                      "Reinstale pelo cartao 3 do programa no PC."
+        fi
+        return 0
+    fi
     "$REMETENTE" relatorio "$FILA" "$ENVIADOS" "$CSV_SD" 2>>"$LOG" || :
 }
 
@@ -750,6 +763,9 @@ printf 'b1\t%s\n' "$agora" >> "$FILA"
 # Quantas colheitas esta execução já fez. A de número zero é a que encontra o
 # que tocou enquanto o daemon estava fora do ar — ver o comentário no laço.
 colheita=0
+# Hora em que a faixa local hoje em curso entrou no histórico. Vazio quando
+# não há nenhuma em aberto. Ver o comentário do f1, no laço.
+aberta_em=""
 if [ "$agora" -lt "$PISO" ]; then
     printf 'c1\t%s\n' "$agora" >> "$FILA"
     registrar "relogio em $agora, anterior ao piso $PISO: horas suspeitas"
@@ -874,11 +890,15 @@ while :; do
                     cat "$PARCIAL" >> "$FILA"
                     echo "$maior" > "$ESTADO"
                     registrar "$novas nova(s), rowid ate $maior"
+                    # A última linha desta colheita é a faixa que ACABOU DE
+                    # COMEÇAR. Ela fica em aberto até outra começar ou até o
+                    # áudio parar; é isso que liga a sondagem do pcm.
+                    aberta_em=$(date +%s)
                     atualizar_csv
-                    # A faixa acabou e já está inteiramente determinada. Se
-                    # houver rede, não há razão para esperar o relógio dos
-                    # doze minutos — só a espera curta que junta uma sequência
-                    # de pulos num envio só.
+                    # A anterior, essa sim, está fechada: a linha nova diz a
+                    # hora em que ela parou. Se houver rede, não há razão para
+                    # esperar o relógio dos doze minutos — só a espera curta
+                    # que junta uma sequência de pulos num envio só.
                     if [ "$IMEDIATO" = 1 ] && [ "$proximo_envio" = "$ENVIO" ]; then
                         falta=$((proximo_envio - ESPERA_IMEDIATO))
                         [ "$falta" -lt 0 ] && falta=0
@@ -962,6 +982,13 @@ while :; do
     precisa_estado=0
     [ "$AGORA" = 1 ] && precisa_estado=1
     [ "$precisa_tidal" = 1 ] && precisa_estado=1
+    # Há uma faixa local em aberto — a última que entrou no histórico, que só
+    # deixa de tocar quando outra começa ou quando o áudio para. Enquanto
+    # estiver assim é preciso olhar o pcm para saber a hora em que parou; sem
+    # essa hora, a última faixa de cada sessão fica sem fechamento e nunca
+    # sobe. Assim que o áudio para, o f1 é escrito e a sondagem se desliga
+    # sozinha — o ciclo parado volta a não criar processo nenhum.
+    [ -n "$aberta_em" ] && precisa_estado=1
 
     pcm_aberto=0
     local_tocando=""
@@ -982,6 +1009,24 @@ FIM_ESTADO
             [ -n "$local_tocando" ] && pcm_aberto=1
             ;;
         esac
+    fi
+
+    # A faixa local em aberto e a hora em que ela parou.
+    #
+    # A linha do histórico entra quando a faixa COMEÇA — observado ao vivo no
+    # aparelho: o player trocou de faixa e a linha apareceu no mesmo segundo,
+    # com o áudio ainda tocando por mais quarenta e cinco. Então cada linha
+    # nova fecha a anterior, e a última de uma sequência só fecha quando o
+    # áudio para. É essa hora que o f1 carrega.
+    #
+    # Sem ele a última faixa de cada sessão ficava sem fim conhecido, e o PC
+    # não tinha como saber se ela tocou inteira ou se o aparelho foi desligado
+    # no primeiro refrão.
+    if [ -n "$aberta_em" ] && [ "$pcm_aberto" = 0 ]; then
+        printf 'f1\t%s\n' "$(date +%s)" >> "$FILA"
+        registrar "audio parou; faixa aberta desde $aberta_em fechada"
+        aberta_em=""
+        atualizar_csv
     fi
 
     olhar_tocando

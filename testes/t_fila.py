@@ -1,13 +1,20 @@
 # -*- coding: utf-8 -*-
 """A reconstrucao: da fila crua do aparelho para execucoes com hora.
 
-Medido no R1: o player grava a linha quando a faixa TERMINA (numa faixa de
-3min14 a gravacao apareceu 194 s depois do play). Entao a hora de cada p1 na
-fila e o FIM da faixa, e o que denuncia uma faixa pulada e a linha aparecer
-cedo demais em relacao ao evento anterior — nao houve espaco no relogio para
-ela ter tocado inteira.
+Observado ao vivo no R1, com o player tocando: as 08:49:41 a faixa mudou e a
+ultima linha do HISTORY_TABLE virou a faixa nova no mesmo segundo, com o pcm
+ainda aberto e a musica tocando por mais quarenta e cinco. A linha entra
+quando a faixa COMECA.
 
-O modo INICIO continua implementado e tem a sua propria secao aqui.
+Entao a hora de cada p1 e o COMECO da faixa, e o espaco ate a linha seguinte e
+quanto ela tocou. Uma faixa pulada se denuncia por ter a proxima linha logo em
+seguida. A ultima de cada sessao nao tem seguinte, e quem a fecha e o marcador
+f1 — a hora em que o daemon viu o audio parar.
+
+O modulo teve um modo FIM, herdado de uma medicao antiga que estava olhando
+para a linha da faixa ANTERIOR. Ele continua implementado, e a secao 11 existe
+para garantir que trocar de modo nao quebra a leitura — mas o padrao e o
+INICIO, que e o que o aparelho faz.
 """
 import os as _os, sys as _sys
 _RAIZ = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
@@ -42,14 +49,14 @@ def p1(rowid, fim, art, tit, dur, alb="Alb", aa="", ano=2020, path="a:\\x.flac")
 
 
 print("=" * 74)
-print("1. sessao normal: cada linha e uma faixa que chegou ao fim")
+print("1. sessao normal: cada linha e uma faixa que comecou")
 print("=" * 74)
 texto = "\n".join([
     f"b1\t{T0}",
-    p1(1, T0 + 260, "yui", "Again", 257),        # 257s de faixa, 260 de folga
-    p1(2, T0 + 500, "FLOW", "Go!!!", 240),       # 240 de folga: exata
-    p1(3, T0 + 745, "TOP", "Migraine", 238),     # 245 de folga
-    f"i1\t{T0 + 745}",
+    p1(1, T0 + 3,   "yui", "Again", 257),        # a proxima em +257: inteira
+    p1(2, T0 + 260, "FLOW", "Go!!!", 240),       # a proxima em +240: inteira
+    p1(3, T0 + 500, "TOP", "Migraine", 238),     # o audio parou em +238
+    f"f1\t{T0 + 738}",
 ])
 regs, ruins = F.ler(texto)
 check("leu todas as linhas", len(regs) == 5 and ruins == 0,
@@ -58,25 +65,25 @@ rec = F.reconstruir(regs, agora=T0 + 900)
 check("as 3 contam", len(rec.execucoes) == 3, F.resumo(rec))
 if len(rec.execucoes) == 3:
     a, b, c = rec.execucoes
-    check("Again: hora = fim menos duracao", a.timestamp == T0 + 260 - 257,
+    check("Again: a hora e a da propria linha", a.timestamp == T0 + 3,
           f"{a.timestamp - T0}s")
     check("Again: ouvida inteira", a.listened == 257, f"{a.listened}s")
     check("Go!!!: ouvida inteira", b.listened == 240, f"{b.listened}s")
-    check("a ultima da sessao tambem conta (a linha prova que acabou)",
+    check("a ultima da sessao conta, fechada pelo f1",
           c.listened == 238, f"{c.listened}s")
     check("em ordem crescente de hora",
           a.timestamp < b.timestamp < c.timestamp)
 
 print()
 print("=" * 74)
-print("2. faixa pulada: a linha aparece cedo demais")
+print("2. faixa pulada: a linha SEGUINTE aparece cedo demais")
 print("=" * 74)
 texto = "\n".join([
     f"b1\t{T0}",
-    p1(1, T0 + 260, "A", "Inteira", 257),
-    p1(2, T0 + 300, "B", "Pulei em 40s", 300),   # so 40s desde a anterior
-    p1(3, T0 + 545, "C", "Inteira2", 240),
-    f"i1\t{T0 + 545}",
+    p1(1, T0 + 3,   "A", "Inteira", 257),
+    p1(2, T0 + 260, "B", "Pulei em 40s", 300),   # a proxima 40s depois
+    p1(3, T0 + 300, "C", "Inteira2", 240),
+    f"f1\t{T0 + 540}",
 ])
 rec = F.reconstruir(F.ler(texto)[0], agora=T0 + 900)
 titulos = [p.track for p in rec.execucoes]
@@ -89,43 +96,49 @@ check("com o motivo explicado",
 
 print()
 print("=" * 74)
-print("3. a primeira faixa da sessao usa o marcador de inicio como limite")
+print("3. a primeira faixa da sessao ja nao depende de vizinho anterior")
 print("=" * 74)
-# Sem isso ela ficaria com folga zero e seria recusada sempre — foi um bug
-# de verdade, pego pelo teste diferencial contra a implementacao em C.
+# Este era o defeito relatado: a primeira da sessao nao tinha anterior, ficava
+# com folga zero e era recusada sempre — "ouvi o disco inteiro e apareceu 0s".
+# Com a hora da linha sendo o comeco, ela nao precisa de nada atras.
 texto = "\n".join([
     f"b1\t{T0}",
-    p1(1, T0 + 260, "A", "Primeira", 257),
-    f"i1\t{T0 + 260}",
+    p1(1, T0 + 3, "A", "Primeira", 257),
+    f"f1\t{T0 + 260}",
 ])
 rec = F.reconstruir(F.ler(texto)[0], agora=T0 + 900)
 check("a primeira faixa conta", len(rec.execucoes) == 1, F.resumo(rec))
-# e se o daemon subiu tarde demais para ela ter cabido?
+if rec.execucoes:
+    check("e ouvida inteira", rec.execucoes[0].listened == 257,
+          f"{rec.execucoes[0].listened}s")
+# E se o audio parou antes de ela ter cabido, nao conta.
 texto = "\n".join([
-    f"b1\t{T0 + 200}",
-    p1(1, T0 + 260, "A", "Nao coube", 257),   # so 60s desde o b1
-    f"i1\t{T0 + 260}",
+    f"b1\t{T0}",
+    p1(1, T0 + 3, "A", "Nao coube", 257),
+    f"f1\t{T0 + 63}",                        # parou 60s depois de comecar
 ])
 rec = F.reconstruir(F.ler(texto)[0], agora=T0 + 900)
-check("mas nao se so houve 60s desde o b1", len(rec.execucoes) == 0,
+check("mas nao se o audio parou 60s depois", len(rec.execucoes) == 0,
       F.resumo(rec))
 
 print()
 print("=" * 74)
-print("4. um reinicio nao empresta folga para a faixa seguinte")
+print("4. um reinicio nao empresta tempo por cima da fronteira")
 print("=" * 74)
+# A faixa de antes do desligamento nao pode ser fechada pelo que aconteceu
+# oito horas depois: o marcador da propria sessao e quem manda.
 texto = "\n".join([
     f"b1\t{T0}",
-    p1(1, T0 + 260, "A", "Antes", 257),
-    f"i1\t{T0 + 260}",
+    p1(1, T0 + 3, "A", "Antes", 257),
+    f"f1\t{T0 + 260}",
     f"b1\t{T0 + 30000}",                       # desligou e ligou 8h depois
-    p1(2, T0 + 30050, "B", "Depois", 240),     # so 50s desde o b1
-    f"i1\t{T0 + 30050}",
+    p1(2, T0 + 30003, "B", "Depois", 240),
+    f"f1\t{T0 + 30053}",                       # o audio parou 50s depois
 ])
 rec = F.reconstruir(F.ler(texto)[0], agora=T0 + 31000)
 titulos = [p.track for p in rec.execucoes]
 check("a de antes conta", "Antes" in titulos, str(titulos))
-check("a de depois nao herda as 8 horas do outro lado do reinicio",
+check("a de depois so tocou 50s e fica de fora",
       "Depois" not in titulos, str(titulos))
 check("contou o reinicio", rec.reinicios == 1, str(rec.reinicios))
 
@@ -224,27 +237,26 @@ check("sem duracao conhecida, entra", "Sem duracao" in titulos, str(titulos))
 
 print()
 print("=" * 74)
-print("11. o modo INICIO continua funcionando")
+print("11. o modo FIM, herdado, ainda le sem quebrar")
 print("=" * 74)
-# Interpretada como se a linha entrasse no COMECO da faixa. Aqui quem fica de
-# fora e a faixa cuja PROXIMA linha chega logo: foi pouco tempo entre as duas,
-# entao ela nao tocou inteira.
+# O modo FIM veio de uma medicao antiga que estava olhando para a linha da
+# faixa ANTERIOR: 194s nao era o atraso da linha nova, era a duracao da que
+# tinha acabado. Ele nao e mais o padrao, mas continua no modulo, e trocar de
+# modo nao pode explodir nem devolver lixo.
 texto = "\n".join([
     f"b1\t{T0}",
-    p1(1, T0 + 10,  "yui", "Again", 257),          # proxima em +260: inteira
-    p1(2, T0 + 270, "Pulada", "So 30s", 300),      # proxima em +30: fora
-    p1(3, T0 + 300, "TOP", "Migraine", 238),       # ultima da sessao
-    f"i1\t{T0 + 540}",
+    p1(1, T0 + 260, "yui", "Again", 257),
+    p1(2, T0 + 500, "FLOW", "Go!!!", 240),
+    f"i1\t{T0 + 500}",
 ])
-rec = F.reconstruir(F.ler(texto)[0], modo=F.INICIO, agora=T0 + 900)
-titulos = [p.track for p in rec.execucoes]
-check("a pulada fica de fora", "So 30s" not in titulos, str(titulos))
-check("as outras entram", len(rec.execucoes) == 2, str(titulos))
+rec = F.reconstruir(F.ler(texto)[0], modo=F.FIM, agora=T0 + 900)
+check("leu no modo FIM sem quebrar", len(rec.execucoes) >= 1, F.resumo(rec))
 if rec.execucoes:
-    check("no modo INICIO a hora e a da propria linha",
-          rec.execucoes[0].timestamp == T0 + 10,
+    check("no modo FIM a hora e a linha menos a duracao",
+          rec.execucoes[0].timestamp == T0 + 260 - 257,
           f"{rec.execucoes[0].timestamp - T0}s")
-check("o padrao do modulo e FIM", F.PADRAO == F.FIM, F.PADRAO)
+check("mas o padrao do modulo e INICIO, que e o que o aparelho faz",
+      F.PADRAO == F.INICIO, F.PADRAO)
 
 print()
 print("=" * 74)

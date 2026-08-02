@@ -14,6 +14,7 @@ SUITE = [
     ("reconstrucao da fila",         "t_fila.py",        120),
     ("r1send: assinatura e lote",    "t_r1send.py",      600),
     ("disco ouvido com o daemon fora","t_lote.py",       300),
+    ("quando a faixa comeca e acaba", "t_tempos.py",     300),
     ("envio automatico pelo WiFi",   "t_envio.py",       900),
     ("envio assim que a faixa acaba","t_imediato.py",    300),
     ("tocando agora (live)",         "t_agora.py",       600),
