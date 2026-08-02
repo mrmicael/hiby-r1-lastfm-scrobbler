@@ -89,6 +89,8 @@
 #   m1  o most_played foi tocado nesta hora
 #   i1  nada mais aconteceu depois desta hora
 #   b1  o daemon começou (houve desligamento ou reinício antes disto)
+#   a1  as próximas n linhas já estavam no banco quando ele começou: tocaram
+#       sem ninguém olhando, e o PC reconstrói as horas em vez de deduzi-las
 #   c1  o relógio estava obviamente errado; o PC vai desconfiar das horas
 #
 # Para desligar tudo: apague /usr/data/scrobble e reinicie. Nada mais no
@@ -745,6 +747,9 @@ achar_cartao && aparar_log_sd
 
 agora=$(date +%s)
 printf 'b1\t%s\n' "$agora" >> "$FILA"
+# Quantas colheitas esta execução já fez. A de número zero é a que encontra o
+# que tocou enquanto o daemon estava fora do ar — ver o comentário no laço.
+colheita=0
 if [ "$agora" -lt "$PISO" ]; then
     printf 'c1\t%s\n' "$agora" >> "$FILA"
     registrar "relogio em $agora, anterior ao piso $PISO: horas suspeitas"
@@ -842,6 +847,27 @@ while :; do
                 novas=${saida%% *}
                 maior=${saida##* }
                 if [ "$novas" -gt 0 ] 2>/dev/null; then
+                    # A PRIMEIRA colheita de uma execução é diferente de todas
+                    # as outras, e essa diferença precisa chegar ao PC.
+                    #
+                    # Nas colheitas seguintes o daemon estava de olho: entre
+                    # uma olhada e a outra passaram quinze segundos, então o
+                    # espaço entre duas linhas é tempo real e dá para dizer se
+                    # a faixa tocou inteira ou foi pulada.
+                    #
+                    # Na primeira não. O que está no banco já estava lá antes
+                    # de o daemon existir; tocou enquanto ninguém olhava. Todas
+                    # essas linhas chegam com a mesma hora — a de agora — e a
+                    # conta do "espaço desde a anterior" dava zero. Era daí que
+                    # vinha o "ouvi o disco inteiro e apareceu 0s": não era um
+                    # erro de conta, era o daemon não ter estado lá.
+                    #
+                    # O marcador a1 diz ao r1send quantas linhas são dessas,
+                    # para ele reconstruir as horas em vez de inventar zeros.
+                    if [ "$colheita" = 0 ]; then
+                        printf 'a1\t%s\t%s\n' "$(date +%s)" "$novas" >> "$FILA"
+                    fi
+                    colheita=$((colheita + 1))
                     # Fila e estado avançam juntos: se a energia acabar entre
                     # as duas linhas, o pior que acontece é repetir, e o PC
                     # descarta rowid repetido.

@@ -49,6 +49,9 @@ typedef unsigned long long u64;
 #define VELHO      (13 * 86400L)
 /* Antes disto o relógio do aparelho claramente não tinha sido acertado. */
 #define PISO       1704067200L
+/* Quanto se supõe que uma faixa dure quando o banco não diz o tamanho ou a
+ * taxa de bits. Só entra na conta que espalha um lote no tempo. */
+#define DUR_PADRAO 180L
 
 /* ------------------------------------------------------------------ */
 /* MD5 — domínio público, RFC 1321                                     */
@@ -158,6 +161,10 @@ typedef struct {
      * estimativa. Zero quer dizer "não sei", que é o caso de toda linha
      * gravada antes deste campo existir. */
     long inicio_dito;
+    /* A linha veio da primeira colheita de uma execução do daemon: já estava
+     * no banco quando ele acordou, e portanto tocou sem ninguém olhando. O
+     * marcador a1 da fila é quem diz isso. */
+    int  recuperada;
     long duracao;
     long ouviu;         /* -1 = não dá para saber */
     int  sessao;
@@ -236,6 +243,7 @@ static int carregar(const char *caminho, Fila *f)
     FILE *fh = fopen(caminho, "r");
     char linha[4096];
     int sessao = 0;
+    int recuperar = 0;   /* quantas linhas ainda faltam do lote do a1 */
     int i, j;
     long fecha[256];
     int nfecha = 0;
@@ -257,6 +265,13 @@ static int carregar(const char *caminho, Fila *f)
         if (!strcmp(c[0], "b1")) {
             sessao++;
             if (sessao < 64) abertura[sessao] = atol(c[1]);
+            recuperar = 0;
+            continue;
+        }
+        if (!strcmp(c[0], "a1")) {
+            /* As próximas n linhas já estavam no banco quando o daemon subiu. */
+            recuperar = (nc > 2) ? atoi(c[2]) : 0;
+            if (recuperar < 0) recuperar = 0;
             continue;
         }
         if (!strcmp(c[0], "c1")) { f->suspeito_ate = atol(c[1]); continue; }
@@ -282,6 +297,7 @@ static int carregar(const char *caminho, Fila *f)
              * depois, então c[10] existe mas vem vazio. */
             e->inicio_dito = (nc > 10 && c[10][0] >= '0' && c[10][0] <= '9')
                              ? atol(c[10]) : 0;
+            if (recuperar > 0) { e->recuperada = 1; recuperar--; }
             desescapa(c[3], e->artista, TXT);
             desescapa(c[4], e->titulo, TXT);
             desescapa(c[5], e->album, TXT);
@@ -294,6 +310,47 @@ static int carregar(const char *caminho, Fila *f)
     }
     fclose(fh);
     (void)fecha; (void)nfecha;
+
+    /* O lote que o daemon encontrou ao acordar precisa de horas inventadas —
+     * mas inventadas com critério.
+     *
+     * Enquanto o daemon está de pé, cada passada acha uma faixa só e "agora"
+     * é o fim dela: o espaço até a linha anterior é tempo real, e serve para
+     * separar quem ouviu de quem pulou. Na primeira colheita de uma execução
+     * isso não vale. O que estava no banco já estava lá antes; tocou sem
+     * ninguém olhando, e todas as linhas chegam com o mesmo carimbo — o de
+     * agora. O "espaço desde a anterior" dava zero, e o resultado era o que
+     * dois usuários relataram: um disco inteiro registrado como 0s, e a
+     * primeira faixa contada como ouvida por inteiro no instante em que
+     * começou.
+     *
+     * Isso não era um erro de conta. O daemon realmente não estava lá — e no
+     * firmware de fábrica ele nunca está, porque nada naquele sistema executa
+     * o /usr/data/init.sh. Para essas pessoas a primeira colheita não é um
+     * caso raro: é o caminho normal, toda vez que ligam o aparelho.
+     *
+     * O banco do player não guarda hora nenhuma (ctime e mtime vêm nulos,
+     * begin_time zero, end_time -1); o rowid é a única coisa que diz a ordem.
+     * Então o lote é esticado para trás a partir da hora da coleta, cada
+     * faixa terminando onde a seguinte começa. É uma reconstrução, não uma
+     * medida, e vale só para o lote marcado com a1: nas colheitas seguintes o
+     * espaço entre as linhas é real e continua mandando, para que uma
+     * sequência de pulos não vire uma sequência de scrobbles.
+     */
+    for (i = f->n - 1; i >= 0; i--) {
+        Exec *e = &f->v[i];
+        long d;
+        if (!e->recuperada || e->inicio_dito > 0) continue;
+        d = e->duracao > 0 ? e->duracao : DUR_PADRAO;
+        /* Termina onde a seguinte do mesmo lote começou, ou na hora da coleta
+         * se for a última dele. */
+        if (i + 1 < f->n && f->v[i+1].recuperada
+            && f->v[i+1].sessao == e->sessao
+            && f->v[i+1].inicio_dito > 0
+            && f->v[i+1].inicio_dito < e->visto)
+            e->visto = f->v[i+1].inicio_dito;
+        e->inicio_dito = e->visto - d;
+    }
 
     /* A linha entra quando a faixa acaba, então a hora de início é a da
      * gravação menos a duração, e o tempo ouvido não pode passar do espaço
