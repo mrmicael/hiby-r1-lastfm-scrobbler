@@ -425,6 +425,8 @@ class Painel(ttk.Frame):
                     partes.append(t("dev.no_read_t"))
             partes.append(t("dev.counts", execucoes=s.execucoes,
                             pendentes=s.pendentes))
+            if s.descartadas:
+                partes.append(t("dev.discarded", descartadas=s.descartadas))
             self.lbl_dispositivo.configure(text="  ".join(partes))
             self._render_boot(s)
             self._render_versao(s)

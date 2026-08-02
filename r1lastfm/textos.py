@@ -382,6 +382,13 @@ TEXTOS: dict[str, dict[str, str]] = {
         "en": "{execucoes} play(s) recorded, {pendentes} still to send.",
         "pt": "{execucoes} execução(ões) anotadas, {pendentes} ainda por enviar.",
     },
+    # O número que sobra quando algumas faixas nunca vão subir. Sem esta
+    # frase o cartão mostrava "43 ainda por enviar" para sempre, e o envio
+    # respondia "não havia nada pendente" — duas verdades que se contradiziam.
+    "dev.discarded": {
+        "en": " ({descartadas} were skipped or too short to count.)",
+        "pt": " ({descartadas} foram puladas ou curtas demais para contar.)",
+    },
     "dev.plug_in": {
         "en": "{mensagem}\n\nPlug the R1 in and set "
               "System → USB working mode → Device.",

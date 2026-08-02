@@ -102,9 +102,28 @@ class Situacao:
     def desatualizado(self) -> bool:
         return self.instalado and self.versao < VERSAO
 
+    # Quantas o r1send ainda mandaria. -1 = ele não estava lá para responder.
+    enviaveis: int = -1
+
     @property
     def pendentes(self) -> int:
+        """As que realmente ainda vão subir.
+
+        Quando o r1send está instalado, quem responde é ele — as regras do
+        envio são dele, e só ele sabe quais faixas serão recusadas de todo
+        jeito. A subtração continua valendo como reserva para quando o
+        aparelho ainda não tem o remetente.
+        """
+        if self.enviaveis >= 0:
+            return self.enviaveis
         return max(0, self.execucoes - self.enviadas)
+
+    @property
+    def descartadas(self) -> int:
+        """Registradas, mas que o Last.fm não aceitaria: pulos e afins."""
+        if self.enviaveis < 0:
+            return 0
+        return max(0, self.execucoes - self.enviadas - self.enviaveis)
 
 
 def situacao(adb: Adb) -> Situacao:
@@ -121,6 +140,14 @@ def situacao(adb: Adb) -> Situacao:
         f"echo LINHAS=$(wc -l < {FILA} 2>/dev/null || echo 0); "
         f"echo TOQUES=$(grep -c '^p1' {FILA} 2>/dev/null); "
         f"echo ENVIADAS=$(wc -l < {ENVIADOS} 2>/dev/null || echo 0); "
+        # Quantas AINDA PODEM ir. Não é execuções menos enviadas: dessa conta
+        # saíam faixas que o Last.fm nunca aceitaria — pulos, faixas curtas
+        # demais, horas velhas demais — e o cartão dizia "43 esperando" para
+        # sempre, sem nunca diminuir, enquanto o envio respondia "não havia
+        # nada pendente". Quem é capaz de responder isso é o próprio r1send,
+        # que aplica as mesmas regras do envio.
+        f"echo ENVIAVEIS=$([ -x {REMETENTE} ] && {REMETENTE} listar {FILA} "
+        f"{ENVIADOS} 2>/dev/null | wc -l || echo -1); "
         f"echo ROWID=$(cat {ESTADO} 2>/dev/null || echo 0); "
         f"echo VERSAO=$(cat {VERSAO_ARQ} 2>/dev/null || echo 0); "
         f"grep -q '^AGORA=1' {CONF} 2>/dev/null && echo NP=1 || echo NP=0; "
@@ -160,6 +187,9 @@ def situacao(adb: Adb) -> Situacao:
         linhas_fila=num("LINHAS"),
         execucoes=num("TOQUES"),
         enviadas=num("ENVIADAS"),
+        enviaveis=(num("ENVIAVEIS") if vals.get("ENVIAVEIS", "").lstrip("-")
+                   .isdigit() and not vals.get("ENVIAVEIS", "").startswith("-")
+                   else -1),
         ultimo_rowid=num("ROWID"),
         espera_sem_fork=(True if fifo == "1" else False if fifo == "0" else None),
         envio_pronto=tem_curl and tem_chave and tem_ca,

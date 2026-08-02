@@ -232,6 +232,39 @@ check("cada versao tem uma descricao do que mudou",
 
 print()
 print("=" * 74)
+print("3f. 'ainda por enviar' conta o que REALMENTE vai subir")
+print("=" * 74)
+# O cartao dizia "43 ainda por enviar" para sempre, e o botao de enviar
+# respondia "nao havia nada pendente". As duas frases estavam certas: a
+# conta era execucoes menos enviadas, e nela entravam faixas que o Last.fm
+# nunca aceitaria. Quem sabe responder e o r1send, que aplica as regras.
+s = AP.Situacao(instalado=True, execucoes=96, enviadas=53, enviaveis=0)
+check("com o r1send respondendo 0, nada esta pendente", s.pendentes == 0,
+      str(s.pendentes))
+check("e as 43 restantes aparecem como descartadas", s.descartadas == 43,
+      str(s.descartadas))
+s = AP.Situacao(instalado=True, execucoes=96, enviadas=53, enviaveis=10)
+check("com 10 enviaveis, pendentes = 10", s.pendentes == 10, str(s.pendentes))
+check("e descartadas = 33", s.descartadas == 33, str(s.descartadas))
+s = AP.Situacao(instalado=True, execucoes=96, enviadas=53)   # sem r1send
+check("sem o remetente, cai na subtracao de antes", s.pendentes == 43,
+      str(s.pendentes))
+check("e nao inventa descartadas", s.descartadas == 0, str(s.descartadas))
+
+adb_env = AdbFalso({"ENVIAVEIS": "ENVIAVEIS=7"})
+situacao_lida = AP.situacao(adb_env)
+pedido_env = " ".join(adb_env.comandos)
+esperado_env = f"{AP.REMETENTE} listar {AP.FILA} {AP.ENVIADOS}"
+check("a consulta pergunta ao r1send quantas ainda vao",
+      esperado_env in pedido_env, esperado_env)
+check("e usa a resposta que ele der", situacao_lida.enviaveis == 7,
+      str(situacao_lida.enviaveis))
+# Um aparelho sem o remetente responde -1, e ai a conta antiga volta.
+check("aparelho sem r1send devolve -1",
+      AP.situacao(AdbFalso({"ENVIAVEIS": "ENVIAVEIS=-1"})).enviaveis == -1)
+
+print()
+print("=" * 74)
 print("3e. a Situacao percebe que o firmware nao executa o init.sh")
 print("=" * 74)
 # O bug que custou mais caro de todos: por meses a tela dizia "instalado,
