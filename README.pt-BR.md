@@ -283,18 +283,38 @@ desses, o cartão 3 diz *“Inicia junto com o player”* e nada disto se aplica
 
 Se não tem, há dois caminhos, e todo o resto funciona igual nos dois:
 
-* ~~Remendar o seu próprio firmware para pôr o gancho~~ — **retirado, não use.**
-  O pacote gerado pelo `ferramentas/remendar_firmware.py` **não instala**: um
-  aparelho que tentou ficou preso na tela *Upgrading…* indefinidamente, e foi
-  preciso recuperá-lo copiando um firmware bom para o cartão e ligando com
-  **power + volume acima** pressionados. Ninguém perdeu o aparelho, mas só
-  porque essa recuperação existe. Se você gerou um, apague.
+* **Remende o seu próprio firmware — a solução definitiva.** O cartão 3 ganha
+  um botão **Resolver o auto-start…** sempre que detecta um firmware que não
+  vai iniciar o coletor. Ele pega o seu `r1.upt` de fábrica, acrescenta a
+  linha que falta e grava um pacote novo, que você instala pelo menu de
+  atualização do próprio player. Ele também **liga o ADB no boot**, coisa que
+  o firmware de fábrica nunca faz — e sem isso este programa não enxerga um R1
+  recém-saído da caixa até você achar o interruptor escondido de
+  desenvolvedor.
 
-  O script conferia a cadeia de md5, o conteúdo do squashfs, as permissões e a
-  sintaxe do lançador — tudo isso estava certo. O que ele nunca fez foi
-  comparar a forma do recipiente ISO com a do original, e é aí que está o
-  erro. Fica desativado até isso ser encontrado *e* um pacote gerado por ele
-  ter sido instalado num aparelho de verdade.
+  Pela linha de comando, se preferir:
+
+  ```bash
+  python3 ferramentas/remendar_firmware.py --entendi-o-risco --com-adb r1.upt r1-autostart.upt
+  ```
+
+  Um pacote gerado assim já foi instalado num R1 de verdade e deu boot: 1.6 de
+  fábrica, coletor subindo sozinho, ADB no ar, cabo funcionando na hora.
+
+  Ele muda dois arquivos e mais nada, e prova isso antes de gravar qualquer
+  coisa: repete o laço de verificação do próprio atualizador do aparelho — lê
+  o manifesto, percorre os pedaços pelos nomes encadeados de md5, confere cada
+  um contra a lista, soma os tamanhos — e depois desempacota a própria saída e
+  compara os 4.718 arquivos com a sua entrada: conteúdo, permissão e dono.
+  Precisa de `squashfs-tools`, `genisoimage` e `p7zip-full` (no Windows, rode
+  dentro do WSL). Ele nunca baixa nem distribui firmware da HiBy — o arquivo é
+  você que fornece.
+
+  **Gravar firmware não tem volta por software.** Ponha um `.upt` bom no
+  cartão *antes* de gravar. Se alguma instalação travar em *Upgrading…*,
+  desligue e ligue segurando **power + volume acima** — ele instala o firmware
+  bom do cartão. Não grave com a bateria baixa nem a partir de um cartão com
+  erros de leitura.
 
 * Aperte **Iniciar agora** no cartão 3
   sempre que plugar o cabo. Daí ele segue rodando — offline, sem cabo — até

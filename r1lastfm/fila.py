@@ -213,11 +213,19 @@ def _uma_sessao(sessao, out, modo, ultima, enviados, agora, suspeito_ate,
     toques = [r for r in sessao if r.tipo == "p1"]
     if not toques:
         return
-    # A hora em que a sessão parou: o f1 (o áudio parou, medido), ou o i1, ou
-    # o último m1, ou nada.
+    # A hora em que a sessão parou. Só o f1 conta: ele é o daemon dizendo que
+    # viu o pcm fechar, e é medido.
+    #
+    # O i1 e o m1 ficaram de fora, e tê-los usado foi um erro caro. O i1 diz
+    # "depois desta hora nada mais aconteceu", o que parece um teto e é o
+    # contrário: enquanto uma faixa longa toca é exatamente quando nada
+    # acontece, então o i1 carrega a hora do último evento — a hora em que a
+    # faixa começou. Uma faixa de 318 s com o i1 um segundo depois dela saía
+    # creditada com 1 segundo. O m1 marca atividade, ou seja, é limite
+    # inferior: prova que a faixa ainda tocava, nunca que já tinha parado.
     fechamento = 0
     for r in sessao:
-        if r.tipo in ("f1", "i1", "m1"):
+        if r.tipo == "f1":
             fechamento = max(fechamento, r.hora)
 
     # `abertura` vem do marcador b1. Se por algum motivo não houver um — uma
@@ -278,8 +286,7 @@ def _uma_sessao(sessao, out, modo, ultima, enviados, agora, suspeito_ate,
                     # fazia uma faixa recém-começada aparecer como ouvida
                     # por inteiro.
                     depois = [r.hora for r in sessao
-                              if r.tipo in ("f1", "i1", "m1")
-                              and r.hora > reg.hora]
+                              if r.tipo == "f1" and r.hora > reg.hora]
                     if depois:
                         span = min(depois) - reg.hora
                         certeza = True

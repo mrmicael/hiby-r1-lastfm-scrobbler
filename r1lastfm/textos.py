@@ -348,10 +348,9 @@ TEXTOS: dict[str, dict[str, str]] = {
               "</dev/null >/dev/null 2>&1 &\"\n"
               "Once started it keeps collecting offline, with no cable, until "
               "you power the player off.\n\n"
-              "There was a firmware patcher here to fix it permanently. It is "
-              "withdrawn: the package it built did not install, and left a "
-              "device stuck on the update screen. Do not use a build from it. "
-              "See the README.",
+              "To fix it for good, use “Fix auto-start…” below. It "
+              "adds the missing line to your own firmware file, which you "
+              "then install from the player’s update menu.",
         "pt": "⚠  Instalado, mas este firmware nunca vai iniciá-lo sozinho.\n"
               "Nada no firmware de fábrica do R1 executa o /usr/data/init.sh — "
               "esse arquivo só roda se você tiver um firmware remendado (o mod "
@@ -363,10 +362,10 @@ TEXTOS: dict[str, dict[str, str]] = {
               "</dev/null >/dev/null 2>&1 &\"\n"
               "Uma vez iniciado ele segue coletando offline, sem cabo, até "
               "você desligar o player.\n\n"
-              "Havia aqui um remendador de firmware para resolver de vez. Ele "
-              "foi retirado: o pacote que ele gerava não instalava, e deixou "
-              "um aparelho preso na tela de atualização. Não use nenhum "
-              "pacote gerado por ele. Veja o README.",
+              "Para resolver de vez, use o “Resolver o auto-start…” "
+              "aqui embaixo. Ele acrescenta a linha que falta no seu "
+              "próprio arquivo de firmware, que você depois instala pelo "
+              "menu de atualização do player.",
     },
     # O remendo de firmware, na tela. É a única coisa do programa que pode
     # inutilizar um player, então o texto não economiza: diz o que vai
@@ -397,12 +396,17 @@ TEXTOS: dict[str, dict[str, str]] = {
               "package is unpacked again and all 4,718 files are compared "
               "against the original, contents, permissions and ownership. If "
               "anything but that one file moved, no package is written.\n\n"
+              "IT ALSO TURNS ADB ON AT BOOT\n"
+              "Stock firmware never starts ADB by itself, which is why this "
+              "program cannot see a fresh R1 until you dig out the hidden "
+              "developer switch. The patched firmware starts it, so the "
+              "cable just works from then on.\n\n"
               "THE RISK, PLAINLY\n"
               "Installing firmware cannot be undone from software. If the "
               "wrong image goes on, the way back is to install a good one "
               "from the player's menu — which needs a player that still "
-              "boots. This package was built and verified but has not been "
-              "installed on a device by its author.\n\n"
+              "boots. A package from this has been installed on a real R1 "
+              "and booted, but that does not make your flash risk-free.\n\n"
               "BEFORE YOU DO IT\n"
               "  • Download and keep the original r1.upt. That file is your "
               "way back, and you want it on your computer before you need "
@@ -429,12 +433,18 @@ TEXTOS: dict[str, dict[str, str]] = {
               "4.718 arquivos são comparados com o original, conteúdo, "
               "permissão e dono. Se qualquer coisa além daquele arquivo tiver "
               "mudado, nenhum pacote é gravado.\n\n"
+              "ELE TAMBÉM LIGA O ADB NO BOOT\n"
+              "O firmware de fábrica nunca inicia o ADB sozinho, e é por isso "
+              "que este programa não enxerga um R1 recém-saído da caixa até "
+              "você achar o interruptor escondido de desenvolvedor. O "
+              "firmware remendado o inicia, e daí em diante o cabo "
+              "simplesmente funciona.\n\n"
               "O RISCO, SEM RODEIOS\n"
               "Instalar firmware não tem volta por software. Se a imagem "
               "errada entrar, o caminho de volta é instalar uma boa pelo menu "
-              "do player — o que exige um player que ainda ligue. Este pacote "
-              "foi gerado e conferido, mas não foi instalado em nenhum "
-              "aparelho por quem o escreveu.\n\n"
+              "do player — o que exige um player que ainda ligue. Um pacote "
+              "gerado por isto já foi instalado num R1 de verdade e deu boot, "
+              "mas isso não torna a sua gravação isenta de risco.\n\n"
               "ANTES DE FAZER\n"
               "  • Baixe e guarde o r1.upt original. Esse arquivo é a sua "
               "volta, e é melhor tê-lo no computador antes de precisar dele.\n"
@@ -475,8 +485,11 @@ TEXTOS: dict[str, dict[str, str]] = {
               "update), and pick it.\n"
               "  3. Let it finish without touching anything. It reboots on "
               "its own.\n\n"
-              "After that the collector starts with the player, every time, "
-              "with no computer involved. Keep your original r1.upt.",
+              "After that the collector starts with the player every time, "
+              "and ADB comes up at boot — so this program sees the R1 as "
+              "soon as you plug the cable in, with no hidden menus. Set "
+              "System → USB working mode → Device and you are done.\n\n"
+              "Keep your original r1.upt.",
         "pt": "Gravado em:\n{caminho}\n\nTodas as conferências passaram: "
               "exatamente um arquivo difere do seu original, ele continua "
               "pertencendo ao root e executável, e é shell válido.\n\n"
@@ -486,8 +499,11 @@ TEXTOS: dict[str, dict[str, str]] = {
               "  2. No player: System → Firmware update (ou Local update), e "
               "escolha-o.\n"
               "  3. Deixe terminar sem mexer em nada. Ele reinicia sozinho.\n\n"
-              "Depois disso o coletor sobe junto com o player, sempre, sem "
-              "computador nenhum. Guarde o seu r1.upt original.",
+              "Depois disso o coletor sobe junto com o player toda vez, e o "
+              "ADB sobe no boot — então este programa enxerga o R1 assim que "
+              "você plugar o cabo, sem menu escondido nenhum. Ponha System → "
+              "USB working mode → Device e acabou.\n\n"
+              "Guarde o seu r1.upt original.",
     },
     "fw.err.title": {
         "en": "The firmware was not patched",
@@ -1274,6 +1290,22 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.9": {
+        "en": "three counting bugs found by testing on a real device: a track "
+              "that had only just started was credited in full whenever the "
+              "collector had been restarted; a five-minute track came out as "
+              "one second because the silence marker was being read as an end "
+              "time when it actually marks the last thing that happened; and "
+              "the send now lands on the cycle after a track closes instead "
+              "of fifteen seconds later",
+        "pt": "tres erros de contagem achados testando num aparelho de "
+              "verdade: uma faixa recem-comecada levava credito integral "
+              "sempre que o coletor tinha sido reiniciado; uma faixa de cinco "
+              "minutos saia com um segundo, porque o marcador de silencio "
+              "estava sendo lido como hora de termino quando ele marca o "
+              "ultimo evento; e o envio passa a cair na verificacao seguinte "
+              "ao fechamento, em vez de quinze segundos depois",
+    },
     "novidade.8": {
         "en": "the listened time is now measured instead of guessed. The "
               "player writes its history row when a track STARTS, not when it "

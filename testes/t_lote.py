@@ -132,12 +132,14 @@ print("=" * 74)
 # r1send nao pode inventar: tres linhas com o mesmo carimbo nao dizem quanto
 # cada faixa tocou, e o espaco entre elas e zero. Nenhuma sobe.
 #
-# O i1 fecha a ultima. Sem ele o relogio a fecharia (uma faixa velha o
-# bastante cabe inteira no intervalo ate agora), o que e razoavel mas nao e o
-# que este teste quer medir.
+# O f1 fecha a ultima — e so ele fecha. O i1 nao serve para isso: ele marca a
+# hora do ultimo evento, que numa faixa em curso e a hora em que ela comecou.
+# Sem nenhum dos dois o relogio fecharia a ultima (uma faixa velha o bastante
+# cabe inteira no intervalo ate agora), o que e razoavel mas nao e o que este
+# teste quer medir.
 fila = (f"b1\t{T0}\n" + "".join(
     linha_p1(300 + i, COLETA, f"Antiga {i+1}", DUR) + "\n" for i in range(3))
-    + f"i1\t{COLETA + 5}\n")
+    + f"f1\t{COLETA + 5}\n")
 linhas = rodar(fila, "antiga")
 check("continuam com o mesmo carimbo",
       len({l["started_at_epoch"] for l in linhas}) < 3,

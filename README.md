@@ -285,32 +285,36 @@ card 3 says *“Starts together with the player”* and you can ignore all of th
 If you do not, you have two options, and everything else works normally either
 way:
 
-* **Patch your own firmware to add the hook** —
-  [`ferramentas/remendar_firmware.py`](ferramentas/remendar_firmware.py) takes
-  your own stock `r1.upt` and writes a new one with the missing line added,
-  which you install from the player's own update menu. After that the collector
-  starts on every boot with no PC involved.
+* **Patch your own firmware — the permanent fix.** Card 3 grows a **Fix
+  auto-start…** button whenever it detects a firmware that will not start the
+  collector. It takes your own stock `r1.upt`, adds the missing line, and
+  writes a new package you install from the player's own update menu. It also
+  turns **ADB on at boot**, which stock firmware never does — without that,
+  this program cannot see a fresh R1 at all until you dig out the hidden
+  developer switch.
+
+  From the command line, if you prefer:
 
   ```bash
-  python3 ferramentas/remendar_firmware.py --entendi-o-risco r1.upt r1-autostart.upt
+  python3 ferramentas/remendar_firmware.py --entendi-o-risco --com-adb r1.upt r1-autostart.upt
   ```
 
-  **An earlier version of this produced a package that did not install**, and a
-  device that tried it sat on the *Upgrading…* screen indefinitely. The cause
-  was found: the stock package is ISO 9660 with **both** Rock Ridge **and**
-  Joliet, and it was being built with Rock Ridge only, so the 52-character
-  chunk names collapsed to 8.3 and took the md5 the updater checks with them.
-  That is fixed, and the container is now compared against your input before
-  anything is written. But **no package from this script has been installed on
-  a device yet**, which is why it will not run without `--entendi-o-risco`.
+  A package built this way has been installed on a real R1 and booted: stock
+  1.6, collector starting by itself, ADB up, cable working immediately.
 
-  Before you flash anything: **put a known-good `.upt` on the memory card
-  first.** If an install ever hangs on *Upgrading…*, power off and power on
-  while holding **power + volume-up** — it will install the good firmware from
-  the card. Do not flash on a low battery.
+  It changes two files and nothing else, and proves it before writing anything:
+  it replays the device updater's own verification loop — reads the manifest,
+  walks the chunks by their chained md5 names, checks each against the md5
+  list, adds up the sizes — then unpacks its own output and diffs all 4,718
+  files against your input: contents, permissions and ownership. Needs
+  `squashfs-tools`, `genisoimage` and `p7zip-full` (run it in WSL on Windows).
+  It never downloads or ships HiBy firmware — you supply the file.
 
-  Needs `squashfs-tools`, `genisoimage` and `p7zip-full` (run it in WSL on
-  Windows). It never downloads or ships HiBy firmware — you supply the file.
+  **Installing firmware cannot be undone from software.** Put a known-good
+  `.upt` on the memory card *before* you flash. If an install ever hangs on
+  *Upgrading…*, power off and power on holding **power + volume-up** — it
+  installs the good firmware from the card. Do not flash on a low battery, or
+  from a card with read errors.
 
 * Press **Start now** in card 3
   whenever you plug the cable in. The collector then keeps running — offline,

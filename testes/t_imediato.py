@@ -67,14 +67,24 @@ COLE = r.to_posix_path(os.path.join(WORK, "r1collect"))
 # Dois bancos: o inicial e o "depois que mais uma faixa acabou".
 b1 = os.path.join(WORK, "im1.db")
 b2 = os.path.join(WORK, "im2.db")
-# A faixa nova tem de qualificar como execucao, senao "nada a enviar" e a
-# resposta certa e o teste nao mede nada. Duracao curta (mas acima dos 30 s
-# que o Last.fm exige) e uma espera maior que a metade dela antes de a linha
-# aparecer: assim o tempo ouvido calculado passa do limite.
+# A linha do historico entra quando a faixa COMECA, e quem a fecha e a linha
+# da faixa SEGUINTE. Entao o cenario precisa das duas:
+#
+#   b2  a faixa curta comeca  -> a linha dela aparece, e ela fica em aberto
+#   b3  a proxima comeca      -> fecha a anterior, que agora tem tempo ouvido
+#
+# Entre uma e outra passa mais que a metade da duracao, senao a faixa foi
+# pulada e "nada a enviar" e a resposta certa.
+#
+# O que este teste mede e o tempo entre o FECHAMENTO e o envio: e ai que o
+# scrobble esta pronto para subir.
+b3 = os.path.join(WORK, "im3.db")
 DUR = 40
-ESPERA_ANTES = 26      # > DUR/2, entao a faixa conta
+ESPERA_TOCANDO = 26    # > DUR/2, entao a faixa conta
 banco(b1, [("yui", "Again", 257)])
 banco(b2, [("yui", "Again", 257), ("FLOW", "Go", DUR)])
+banco(b3, [("yui", "Again", 257), ("FLOW", "Go", DUR),
+           ("TOP", "Depois", 200)])
 
 # O daemon roda com as raizes trocadas e um curl de mentira que so anota a
 # hora em que foi chamado — e a hora e o que este teste mede.
@@ -133,13 +143,19 @@ chmod 755 {T}/r1scrobbled
 mkdir -p {T}/cartao
 
 setsid {T}/r1scrobbled </dev/null >/dev/null 2>&1 &
-# Deixa o marco zero passar (a primeira rodada ignora o historico antigo) e
-# depois espera o bastante para a faixa seguinte contar como ouvida.
-sleep {ESPERA_ANTES}
+# Deixa o marco zero passar: a primeira rodada ignora o historico antigo.
+sleep 8
 
-# AGORA a faixa acaba: o "player" grava a linha nova no banco.
-date +%s.%N > /tmp/imtest.fim
+# A faixa curta COMECA: o player grava a linha dela.
 cp {r.to_posix_path(b2)} {T}/banco.db
+
+# Ela toca por mais da metade da propria duracao...
+sleep {ESPERA_TOCANDO}
+
+# ...e AGORA a proxima comeca, o que fecha a anterior. E deste instante que
+# o envio tem de partir.
+date +%s.%N > /tmp/imtest.fim
+cp {r.to_posix_path(b3)} {T}/banco.db
 
 # Espera o suficiente para o envio imediato acontecer, e MUITO menos que os
 # doze minutos do relogio normal.

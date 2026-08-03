@@ -39,7 +39,7 @@ zig cc -target mipsel-linux-musleabihf -Os -static -Wall -Wextra \
 
 ```
 13f9ebace833630013edcb5f3feebfc10f2d3912dcfc3bf0ce8837f0922c55e2  r1collect
-99a9d5ce661be4c95b602833d1f5a4ace78cb149dca0fbce501ec2f8401e571e  r1send
+38576c50ba92b036c4bbf3a31ea3d97b7738774b76a19bcc10803d866eb17d1a  r1send
 ```
 
 Built with Zig 0.16.0. Note that a rebuild will not necessarily match these

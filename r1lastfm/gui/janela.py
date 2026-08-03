@@ -461,12 +461,11 @@ class Painel(ttk.Frame):
         if s.instalado and s.no_init and s.init_roda is False:
             self.lbl_boot.configure(text=t("dev.sem_boot.ajuda"))
             self.lbl_boot.pack(anchor="w", pady=(10, 0), before=self.lbl_versao)
-            # O botão do remendo está fora do ar: o pacote que ele gerava não
-            # instalava, e prendeu um aparelho na tela de atualização. Ver o
-            # comentário no ferramentas/remendar_firmware.py.
+            self.btn_firmware.pack(anchor="w", pady=(8, 0),
+                                   before=self.lbl_versao)
         else:
             self.lbl_boot.pack_forget()
-        self.btn_firmware.pack_forget()
+            self.btn_firmware.pack_forget()
 
     def _render_versao(self, s: AP.Situacao) -> None:
         if not s.instalado:
@@ -926,8 +925,14 @@ class Painel(ttk.Frame):
             return
 
         def work():
+            # --com-adb sempre. O firmware de fábrica não sobe o ADB no boot
+            # (só traz o T90adb, e o rcS executa apenas os S*), e sem ADB este
+            # programa não fala com o aparelho — quem instalasse um firmware
+            # remendado sem isso ficaria com o gancho funcionando e sem
+            # nenhuma forma de instalar o coletor.
             res = runner.posix(
                 f"python3 {runner.to_posix_path(script)} "
+                f"--entendi-o-risco --com-adb "
                 f"{runner.to_posix_path(entrada)} "
                 f"{runner.to_posix_path(saida)}",
                 mutating=True, timeout=1800)

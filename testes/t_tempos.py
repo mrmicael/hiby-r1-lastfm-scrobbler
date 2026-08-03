@@ -154,6 +154,36 @@ check("faixa velha o bastante e fechada pelo relogio",
 
 print()
 print("=" * 74)
+print("4b. o marcador de silencio NAO fecha a faixa")
+print("=" * 74)
+# Visto no aparelho: uma faixa de 318s com o i1 um segundo depois dela,
+# creditada com 1 segundo de 318.
+#
+# O i1 diz "depois desta hora nada mais aconteceu". Parece um teto e e o
+# contrario: e enquanto uma faixa longa toca que nada acontece — nenhuma
+# linha nova entra no banco, o daemon fica quieto, e escreve o i1 com a hora
+# do ULTIMO evento, que e a hora em que a faixa comecou.
+COMECO = AGORA - 400
+fila = (f"b1\t{COMECO - 30}\n" + p1(40, COMECO, "Longa", 318) + "\n"
+        + f"i1\t{COMECO + 1}\n"       # o silencio comeca logo: ela esta tocando
+        + f"m1\t{COMECO + 184}\n")    # atividade DURANTE a faixa
+r = rodar(fila, "silencio")
+lg = r["Longa"]
+check("o i1 nao a fecha em 1 segundo", lg["seconds_heard"] != "1",
+      f"{lg['seconds_heard']}s de {lg['track_seconds']}s")
+check("ela conta como ouvida", lg["seconds_heard"] == "318",
+      f"{lg['seconds_heard']}s")
+check("e vai para o Last.fm", lg["status"] == "pending", lg["status"])
+
+# E com o f1, que e medido, ela e fechada onde o audio realmente parou.
+fila = (f"b1\t{COMECO - 30}\n" + p1(41, COMECO, "Longa2", 318) + "\n"
+        + f"i1\t{COMECO + 1}\n" + f"f1\t{COMECO + 200}\n")
+r = rodar(fila, "silencio2")
+check("o f1, esse sim, fecha onde o audio parou",
+      r["Longa2"]["seconds_heard"] == "200", r["Longa2"]["seconds_heard"])
+
+print()
+print("=" * 74)
 print("5. a hora enviada nunca fica ANTES de a faixa comecar")
 print("=" * 74)
 # O bug antigo mandava `visto - duracao`, uma faixa inteira antes do comeco.

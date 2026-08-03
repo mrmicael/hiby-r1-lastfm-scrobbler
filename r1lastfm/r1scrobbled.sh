@@ -206,7 +206,6 @@ ENVIO_MAX=7200
 # faixas por envio. Não vale: quem pula cinco faixas seguidas já gera as cinco
 # linhas numa leitura só do banco, e elas saem juntas de qualquer jeito.
 IMEDIATO=1
-ESPERA_IMEDIATO=15
 
 # Antes disto (1 de janeiro de 2024) o relógio claramente não foi acertado.
 # O Last.fm recusa horas com mais de 14 dias, então é melhor marcar do que
@@ -214,6 +213,15 @@ ESPERA_IMEDIATO=15
 PISO=1704067200
 
 [ -r "$DIR/conf" ] && . "$DIR/conf"
+
+# A espera do envio imediato sai do RAPIDO, e por isso vem depois do conf.
+#
+# O comentário do IMEDIATO sempre disse "mantê-lo em RAPIDO faz o envio cair
+# na verificação seguinte", mas o número estava fixo em 15 — igual ao RAPIDO
+# padrão, e por isso a diferença nunca apareceu. Quem baixasse o RAPIDO para
+# ter o scrobble mais depressa continuava esperando os quinze segundos, sem
+# nada em lugar nenhum explicando por quê.
+ESPERA_IMEDIATO=$RAPIDO
 
 # Uma instância só. Existir um processo com aquele pid não basta: o número
 # pode ter sido reaproveitado por qualquer outro programa. Só conta se a linha
@@ -792,6 +800,41 @@ if [ "$primeira" = 1 ]; then
         rm -f "$COPIA" "$PARCIAL"
     fi
 fi
+# O lote atrasado é o que já estava no banco AGORA, na partida — e não a
+# primeira colheita que vier a acontecer.
+#
+# Eu marcava como lote a primeira colheita de cada execução, qualquer que
+# fosse a hora dela. Só que numa partida sem nada atrasado a primeira colheita
+# é a próxima faixa que a pessoa tocar, dali a minutos — e ela levava o
+# tratamento de lote: crédito integral no instante em que começou. Que é
+# exatamente a reclamação que o lote veio resolver, reintroduzida por ele.
+#
+# Aqui a pergunta certa é feita uma vez só, antes de o laço começar: o banco
+# tem linhas além do que já foi anotado? Se tem, elas tocaram sem ninguém
+# olhando e são lote de verdade. Se não tem, não há lote nenhum, e tudo que
+# vier depois é ao vivo.
+atrasadas=0
+if cp -f "$DB" "$COPIA" 2>/dev/null; then
+    desde=$(cat "$ESTADO" 2>/dev/null)
+    [ -n "$desde" ] || desde=0
+    if saida=$("$COLETOR" "$COPIA" "$desde" "$PARCIAL" 2>>"$LOG"); then
+        atrasadas=${saida%% *}
+        if [ "$atrasadas" -gt 0 ] 2>/dev/null; then
+            printf 'a1\t%s\t%s\n' "$(date +%s)" "$atrasadas" >> "$FILA"
+            cat "$PARCIAL" >> "$FILA"
+            echo "${saida##* }" > "$ESTADO"
+            registrar "$atrasadas faixa(s) tocaram com o daemon fora do ar;" \
+                      "horas reconstruidas"
+            aberta_em=$(date +%s)
+            atualizar_csv
+        fi
+    fi
+    rm -f "$COPIA" "$PARCIAL"
+fi
+# Daqui em diante nenhuma colheita é lote: o daemon está de olho, e o espaço
+# entre uma linha e a outra é tempo de verdade.
+colheita=1
+
 if [ "$fifo_ok" = 1 ]; then
     registrar "espera sem fork (read -t no fifo; esperou ${_medido}s de 2)"
 else
@@ -863,27 +906,10 @@ while :; do
                 novas=${saida%% *}
                 maior=${saida##* }
                 if [ "$novas" -gt 0 ] 2>/dev/null; then
-                    # A PRIMEIRA colheita de uma execução é diferente de todas
-                    # as outras, e essa diferença precisa chegar ao PC.
-                    #
-                    # Nas colheitas seguintes o daemon estava de olho: entre
-                    # uma olhada e a outra passaram quinze segundos, então o
-                    # espaço entre duas linhas é tempo real e dá para dizer se
-                    # a faixa tocou inteira ou foi pulada.
-                    #
-                    # Na primeira não. O que está no banco já estava lá antes
-                    # de o daemon existir; tocou enquanto ninguém olhava. Todas
-                    # essas linhas chegam com a mesma hora — a de agora — e a
-                    # conta do "espaço desde a anterior" dava zero. Era daí que
-                    # vinha o "ouvi o disco inteiro e apareceu 0s": não era um
-                    # erro de conta, era o daemon não ter estado lá.
-                    #
-                    # O marcador a1 diz ao r1send quantas linhas são dessas,
-                    # para ele reconstruir as horas em vez de inventar zeros.
-                    if [ "$colheita" = 0 ]; then
-                        printf 'a1\t%s\t%s\n' "$(date +%s)" "$novas" >> "$FILA"
-                    fi
-                    colheita=$((colheita + 1))
+                    # Nenhum a1 aqui. O que tocou com o daemon fora do ar já
+                    # foi recolhido e marcado na partida, antes deste laço
+                    # começar; daqui para a frente ele está de olho, e o
+                    # espaço entre duas linhas é tempo de verdade.
                     # Fila e estado avançam juntos: se a energia acabar entre
                     # as duas linhas, o pior que acontece é repetir, e o PC
                     # descarta rowid repetido.

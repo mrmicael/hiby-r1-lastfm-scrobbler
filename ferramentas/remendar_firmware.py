@@ -81,29 +81,21 @@ import tempfile
 # num aparelho de verdade. "Compilou e passou nas minhas conferências" não é o
 # padrão para uma coisa que pode deixar alguém sem player.
 AVISO = (
-    "READ THIS FIRST — no package from this script has been installed yet.\n"
+    "This writes a firmware package you will install on your player.\n"
     "\n"
-    "The first version produced a package that did NOT install. A device that\n"
-    "tried it sat on the \"Upgrading...\" screen indefinitely and was recovered\n"
-    "by putting a known-good firmware on the card and powering on while\n"
-    "holding power + volume-up.\n"
-    "\n"
-    "The cause was found: the stock package is ISO 9660 with BOTH Rock Ridge\n"
-    "and Joliet, and it was being built with Rock Ridge only. The 52-character\n"
-    "chunk names collapse to 8.3 without Joliet, taking with them the md5 the\n"
-    "updater checks each chunk against. The updater was waiting for files that,\n"
-    "to it, did not exist.\n"
-    "\n"
-    "That is fixed, and the container is now compared against the input before\n"
-    "anything is written. But a fix that has been verified is not a fix that\n"
-    "has been installed, and treating those as the same thing is what cost\n"
-    "somebody an evening. So:\n"
+    "A package from this script has been installed on a real R1 and booted:\n"
+    "stock 1.6, with the collector starting by itself and ADB coming up at\n"
+    "boot. It works. But installing firmware is still the one thing here that\n"
+    "cannot be undone from software, so:\n"
     "\n"
     "  * BEFORE you flash, put a known-good .upt on the memory card.\n"
-    "    That is your way back, and you want it there already.\n"
-    "  * If it hangs on \"Upgrading...\": power off, then power on holding\n"
-    "    power + volume-up. It will install the good firmware from the card.\n"
-    "  * Do not flash on a low battery.\n"
+    "    That is your way back, and you want it there already, not later.\n"
+    "  * If an install ever hangs on \"Upgrading...\": power off, then power\n"
+    "    on holding power + volume-up. It installs the good firmware from\n"
+    "    the card. This is how the one failure during development was\n"
+    "    recovered, and it works.\n"
+    "  * Do not flash on a low battery, or from a memory card with read\n"
+    "    errors.\n"
     "\n"
     "Pass --entendi-o-risco to continue.\n"
 )
@@ -300,6 +292,30 @@ def reescrever_manifesto(caminho: str, tamanho: int, soma: str) -> str:
     return f"manifest now declares size {tamanho:,} and md5 {soma}"
 
 
+def instalar_adb_no_boot(raiz: str) -> str:
+    """Põe o /etc/init.d/S90adb, que liga o ADB no boot.
+
+    O firmware de fábrica traz o T90adb, mas o rcS só executa os scripts que
+    começam com S — então o ADB nunca sobe sozinho. Quem tinha ADB no R1
+    tinha um firmware modificado que acrescentava este arquivo, e quem
+    instala o 1.6 puro fica sem: sem ADB não dá para instalar o coletor, e
+    sem coletor não há scrobbler.
+
+    Este é o mesmo script que já rodava no aparelho onde tudo foi
+    desenvolvido, copiado de lá. Ele só sobe o ADB quando o modo USB é Auto
+    (0) ou Device (1); em DAC e OTG o gadget USB é de outro dono.
+    """
+    origem = os.path.join(os.path.dirname(os.path.abspath(__file__)), "S90adb")
+    if not os.path.isfile(origem):
+        raise Erro(f"the S90adb script is missing from {origem}")
+    destino = os.path.join(raiz, "etc", "init.d", "S90adb")
+    if os.path.exists(destino):
+        return "ADB at boot: already there, left alone"
+    shutil.copyfile(origem, destino)
+    os.chmod(destino, 0o755)
+    return f"ADB at boot: /etc/init.d/S90adb installed ({os.path.getsize(destino)} bytes)"
+
+
 def remendar_lancador(raiz: str) -> str:
     """Põe o gancho no hiby_player.sh. Devolve o que foi feito, em texto."""
     alvo = os.path.join(raiz, "usr", "bin", "hiby_player.sh")
@@ -482,7 +498,7 @@ def conferir_recipiente(entrada: str, saida: str) -> None:
 
 
 def conferir_saida(upt: str, raiz_original: str, leitor: str,
-                   trabalho: str) -> None:
+                   trabalho: str, esperados: list[str]) -> None:
     """Desempacota o que acabou de ser gerado e compara com a entrada.
 
     Um pacote de firmware é a única coisa aqui que pode inutilizar o aparelho,
@@ -526,15 +542,26 @@ def conferir_saida(upt: str, raiz_original: str, leitor: str,
                     md5(p1) != md5(p2):
                 diferentes.append(rel)
 
-    esperado = os.path.join("usr", "bin", "hiby_player.sh")
-    inesperados = [d for d in diferentes if d != esperado]
+    # Um arquivo novo não aparece percorrendo a árvore original, então a
+    # comparação é feita nos dois sentidos.
+    for base, _dirs, arqs in os.walk(raiz2):
+        for a in arqs:
+            rel = os.path.relpath(os.path.join(base, a), raiz2)
+            if not os.path.lexists(os.path.join(raiz_original, rel)):
+                diferentes.append(rel)
+
+    inesperados = [d for d in diferentes
+                   if d.split(" (")[0] not in esperados]
     if inesperados:
         raise Erro("the rebuilt image differs in files it should not:\n  "
-                   + "\n  ".join(inesperados[:20]))
-    if esperado not in diferentes:
-        raise Erro("the rebuilt image is identical to the input — the patch "
-                   "did not make it in")
-    print("  verified: exactly one file differs, and it is the launcher")
+                   + "\n  ".join(sorted(inesperados)[:20]))
+    faltando = [e for e in esperados
+                if not any(d.split(" (")[0] == e for d in diferentes)]
+    if faltando:
+        raise Erro("these were supposed to change and did not:\n  "
+                   + "\n  ".join(faltando))
+    print(f"  verified: {len(esperados)} file(s) differ, and they are the "
+          f"ones asked for: " + ", ".join(esperados))
 
     # Dono e permissão do lançador, lidos dos metadados do squashfs e não do
     # disco: um `unsquashfs` sem privilégio grava tudo como o usuário atual, e
@@ -571,6 +598,10 @@ def main() -> int:
     ap.add_argument("saida", help="the patched .upt to write")
     ap.add_argument("--manter", action="store_true",
                     help="keep the work directory (for inspection)")
+    ap.add_argument("--com-adb", action="store_true",
+                    help="also install /etc/init.d/S90adb, which brings ADB "
+                         "up at boot. Stock firmware never does, and without "
+                         "ADB there is no way to install the collector.")
     ap.add_argument("--entendi-o-risco", action="store_true",
                     help="acknowledge that no package from this script has "
                          "been installed on a device yet")
@@ -634,7 +665,13 @@ def main() -> int:
         shutil.copytree(raiz, original, symlinks=True)
 
         print("patching the launcher")
+        # A lista do que TEM de mudar. No fim, o pacote é aberto de novo e
+        # nada além disto pode ter se mexido.
+        esperados = [os.path.join("usr", "bin", "hiby_player.sh")]
         print("  " + remendar_lancador(raiz))
+        if args.com_adb:
+            print("  " + instalar_adb_no_boot(raiz))
+            esperados.append(os.path.join("etc", "init.d", "S90adb"))
 
         print("repacking")
         novo = os.path.join(trabalho, "rootfs.novo")
@@ -678,7 +715,7 @@ def main() -> int:
 
         print("checking the result")
         conferir_recipiente(args.entrada, args.saida)
-        conferir_saida(args.saida, original, leitor, trabalho)
+        conferir_saida(args.saida, original, leitor, trabalho, esperados)
 
         print()
         print("Done. Copy it to the root of the SD card and use the player's")

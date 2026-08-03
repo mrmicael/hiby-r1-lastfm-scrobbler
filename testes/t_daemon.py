@@ -196,6 +196,20 @@ if f1 and toca:
 check("o daemon registrou o fechamento no log",
       "audio parou" in saida,
       f"{saida.count('audio parou')} linha(s) de fechamento")
+
+# O a1 marca o que tocou com o daemon fora do ar. Aqui o daemon sobe com o
+# banco ja todo anotado (estado no topo) e as faixas aparecem DEPOIS — sao
+# ao vivo, e nenhuma delas pode virar lote.
+#
+# Eu marcava como lote a primeira colheita de cada execucao, qualquer que
+# fosse a hora dela. Numa partida sem nada atrasado, a primeira colheita e a
+# proxima faixa que a pessoa tocar, e ela levava credito integral no instante
+# em que comecava — a reclamacao que o lote veio resolver, reintroduzida por
+# ele. Visto no aparelho: uma faixa de 260s colhida 107s depois da partida,
+# reportada como ouvida por inteiro.
+a1 = [f for f in fila if f[0] == "a1"]
+check("nenhum a1: nada estava atrasado nesta partida", not a1,
+      f"{len(a1)} marcador(es) a1 para {len(toca)} faixas ao vivo")
 i1 = [f for f in fila if f[0] == "i1"]
 if i1 and toca:
     check("o i1 marca o ULTIMO evento, nao a hora de detectar",

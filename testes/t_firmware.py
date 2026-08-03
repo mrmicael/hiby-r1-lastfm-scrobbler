@@ -1,24 +1,29 @@
 # -*- coding: utf-8 -*-
-"""O remendador de firmware: desativado, e com o defeito travado no lugar.
+"""O remendador de firmware, com os erros dele travados no lugar.
 
-Este arquivo existe por causa do pior erro do projeto. O remendador gerou um
-pacote que NAO INSTALA: um aparelho ficou preso na tela "Upgrading..."
-indefinidamente e so foi recuperado pondo um firmware bom no cartao e ligando
-com power + volume acima.
+Ele funciona: um pacote gerado por aqui foi instalado num R1 de verdade e deu
+boot, com o coletor subindo sozinho e o ADB no ar. Mas custou tres tentativas,
+e duas delas prenderam um aparelho na tela "Upgrading..." — recuperado pondo
+um firmware bom no cartao e ligando com power + volume acima.
 
-A causa: a ISO de fabrica tem Joliet, e eu gerava so com Rock Ridge. Os nomes
-dos pedacos tem 52 caracteres; no ISO 9660 puro viram ROOTFS_S.000;1 e o md5
-que o atualizador confere some junto. Sem Joliet ele procurava arquivos que,
-para ele, nao existiam.
+As duas causas, nesta ordem:
 
-O que doi nao e o bug — e que eu tinha conferencia de sobra e nenhuma delas
-olhava para o recipiente. Cadeia de md5, conteudo do squashfs, permissao, dono
-e sintaxe do lancador: tudo certo, tudo dentro do pacote. Conferir o recheio e
-nao a embalagem da confianca sem dar garantia.
+  1. a ISO de fabrica tem Rock Ridge E Joliet, e eu gerava so com Rock Ridge.
+     Os nomes dos pedacos tem 52 caracteres; sem Joliet viram ROOTFS_S.000;1
+     e o md5 que o atualizador confere some junto com o nome.
 
-Entao aqui ficam tres coisas: que ele continua desativado, que a chamada do
-gerador de ISO carrega o -J, e que a conferencia do recipiente acontece antes
-de qualquer pacote existir.
+  2. o ota_md5_<nome>.<md5> nao e uma marca vazia: e um arquivo com o md5 de
+     CADA pedaco, uma linha por pedaco. Eu o criava vazio, entao o atualizador
+     lia a linha 1, nao achava nada, e desistia no primeiro pedaco.
+
+O que doi nao sao os bugs — e que eu tinha conferencia de sobra e todas elas
+eram invencao minha sobre o que o formato deveria ser. Cadeia de md5, conteudo
+do squashfs, permissao, dono, sintaxe do lancador: tudo certo, tudo passando,
+enquanto o aparelho travava. O formato inteiro estava escrito num script de
+shell dentro do firmware que eu ja tinha desempacotado no primeiro dia.
+
+Por isso a conferencia de hoje repete o laco do atualizador em vez de inventar
+regras. E por isso este arquivo existe: para que nada disso volte calado.
 """
 import os as _os, sys as _sys
 _RAIZ = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
@@ -45,20 +50,18 @@ arv = ast.parse(fonte)
 print("=" * 74)
 print("1. nao roda sem que a pessoa reconheca o risco")
 print("=" * 74)
-# A primeira versao gerou um pacote que travou um aparelho. O defeito foi
-# achado e corrigido, mas nenhum pacote deste script foi instalado ainda —
-# entao ele nao roda sozinho, e o aviso tem de contar a historia inteira e
-# dizer como recuperar, ANTES de qualquer coisa acontecer.
+# Um pacote deste script ja foi instalado num R1 de verdade e deu boot. Ainda
+# assim ele nao roda sozinho: gravar firmware e a unica coisa aqui sem volta
+# por software, e o aviso tem de dizer como recuperar ANTES de qualquer coisa
+# acontecer — foi assim que a unica falha do desenvolvimento foi desfeita.
 r = subprocess.run([sys.executable, FERRAMENTA, "entrada.upt", "saida.upt"],
                    capture_output=True, text=True)
 check("recusa rodar sem o reconhecimento", r.returncode != 0, f"rc={r.returncode}")
 saida = (r.stdout or "") + (r.stderr or "")
-check("avisa que nenhum pacote foi instalado ainda",
-      "has been installed" in saida)
-check("conta o que aconteceu da primeira vez",
-      "did NOT install" in saida or "does not install" in saida)
 check("manda por um firmware bom no cartao ANTES", "BEFORE you flash" in saida)
 check("e diz como recuperar um aparelho preso", "volume-up" in saida)
+check("nao promete que a gravacao e isenta de risco",
+      "cannot be undone" in saida)
 
 print()
 print("=" * 74)
@@ -146,6 +149,30 @@ check("ela refaz o encadeamento de nomes como o atualizador faz",
       'f"{nome}.{i:04d}.{anterior}"' in fonte)
 check("e confere o total contra o img_size, como o laco dele",
       'total < int(campos.get("img_size"' in fonte)
+
+print()
+print("=" * 74)
+print("3d. o ADB no boot vai junto, e a janela sempre pede por ele")
+print("=" * 74)
+# O firmware de fabrica traz o T90adb, mas o rcS so executa os S* — entao o
+# ADB nunca sobe sozinho. Sem ADB este programa nao fala com o aparelho, e
+# quem instalasse um firmware remendado sem isso ficaria com o gancho
+# funcionando e nenhuma forma de instalar o coletor.
+S90 = _os.path.join(_RAIZ, "ferramentas", "S90adb")
+check("o script do ADB esta no repositorio", _os.path.isfile(S90))
+if _os.path.isfile(S90):
+    s90 = open(S90, encoding="utf-8").read()
+    check("ele so sobe o ADB nos modos Auto e Device",
+          "0|1)" in s90, "em DAC/OTG o gadget USB e de outro dono")
+    check("e chama o supervisor de fabrica como reserva",
+          "T90adb" in s90)
+check("a ferramenta sabe instala-lo", "def instalar_adb_no_boot" in fonte)
+check("e ele entra em /etc/init.d/S90adb",
+      '"etc", "init.d", "S90adb"' in fonte)
+janela = open(_os.path.join(_RAIZ, "r1lastfm", "gui", "janela.py"),
+              encoding="utf-8").read()
+check("a janela sempre passa --com-adb", "--com-adb" in janela,
+      "sem isto o aparelho remendado fica inalcancavel")
 
 print()
 print("=" * 74)

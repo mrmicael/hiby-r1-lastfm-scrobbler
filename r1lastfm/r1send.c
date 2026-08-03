@@ -246,10 +246,13 @@ static void apara(char *s)
  * sido desligado no meio dela. Em ordem de confiança:
  *
  *   f1  o daemon viu o áudio parar nesta hora. É medido, não deduzido.
- *   i1  depois desta hora nada mais aconteceu. Serve de teto: a faixa não
- *       pode ter passado dali, porque o daemon teria notado.
  *   b1  a sessão seguinte abriu. Entre uma e outra houve um desligamento, e
  *       o mais honesto é fechar a faixa onde a sessão fechou.
+ *
+ * O i1 e o m1 NÃO entram nessa conta, embora pareçam servir. Ver o comentário
+ * onde eles são lidos: o i1 marca a hora do último evento, que numa faixa
+ * longa é a hora em que ela começou, e usá-lo como fim creditava um segundo a
+ * uma faixa de cinco minutos.
  *
  * Sem nenhum dos três a faixa fica em aberto (devolve 0) e não é enviada
  * ainda. Isso é de propósito: a leitura seguinte da fila já vai ter o
@@ -326,13 +329,29 @@ static int carregar(const char *caminho, Fila *f)
             continue;
         }
         if (!strcmp(c[0], "c1")) { f->suspeito_ate = atol(c[1]); continue; }
-        if (!strcmp(c[0], "f1") || !strcmp(c[0], "i1")
-            || !strcmp(c[0], "m1")) {
-            /* Horas em que se sabe que a faixa aberta já não estava tocando.
-             * O f1 é o bom: o daemon viu o áudio parar. O i1 e o m1 são
-             * tetos mais frouxos, mas melhores do que deixar a última faixa
-             * de uma sessão sem fechamento nenhum. */
+        if (!strcmp(c[0], "f1")) {
+            /* O áudio parou nesta hora. É a única coisa aqui que fecha uma
+             * faixa, porque é a única que foi medida: o daemon olhou o pcm e
+             * viu que fechou. */
             if (nfecha < 256) fecha[nfecha++] = atol(c[1]);
+            continue;
+        }
+        if (!strcmp(c[0], "i1") || !strcmp(c[0], "m1")) {
+            /* Estes NÃO fecham faixa, e usá-los para isso foi um erro caro.
+             *
+             * O i1 diz "depois desta hora nada mais aconteceu". Parece um
+             * teto e é o contrário: é justamente enquanto uma faixa longa
+             * toca que nada acontece — nenhuma linha nova entra no banco,
+             * então o daemon fica quieto e escreve o i1 com a hora do último
+             * evento, que é a hora em que a faixa COMEÇOU. Visto no
+             * aparelho: uma faixa de 318 s com o i1 um segundo depois dela,
+             * creditada com 1 segundo.
+             *
+             * O m1 é ainda mais claro: ele marca o most_played sendo tocado,
+             * ou seja, atividade. É um limite inferior — prova que a faixa
+             * ainda estava tocando naquela hora —, nunca superior.
+             *
+             * Ficam lidos porque servem para diagnóstico. */
             continue;
         }
         if (strcmp(c[0], "p1") || nc < 10) continue;
