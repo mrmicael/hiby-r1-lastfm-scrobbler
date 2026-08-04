@@ -89,9 +89,18 @@ print("=" * 74)
 print("5. as regras de 'isso conta como execucao?'")
 print("=" * 74)
 casos = [
-    (Play("A", "T", 1, duration=200, listened=150), True,  "ouviu 150 de 200"),
-    (Play("A", "T", 1, duration=200, listened=99),  False, "ouviu menos da metade"),
-    (Play("A", "T", 1, duration=200, listened=100), True,  "exatamente metade"),
+    # A regua e 90% da faixa, nao a metade que o Last.fm pede. Com metade,
+    # uma faixa largada no meio subia para o perfil como se tivesse sido
+    # ouvida — foi a reclamacao de quem usou: "pulei e contabilizou como se
+    # tivesse escutado toda".
+    (Play("A", "T", 1, duration=200, listened=180), True,  "ouviu 180 de 200 (90%)"),
+    (Play("A", "T", 1, duration=200, listened=179), False, "179 de 200: falta um segundo"),
+    (Play("A", "T", 1, duration=200, listened=150), False, "150 de 200 (75%) nao conta"),
+    (Play("A", "T", 1, duration=200, listened=100), False, "metade nao basta mais"),
+    # O caso exato que gerou a reclamacao: 62 de 125. Pela regra antiga
+    # passava, porque 125/2 em divisao inteira da 62 e 62 >= 62.
+    (Play("A", "T", 1, duration=125, listened=62),  False, "62 de 125: o caso relatado"),
+    (Play("A", "T", 1, duration=125, listened=113), True,  "113 de 125 (90,4%)"),
     (Play("A", "T", 1, duration=600, listened=245), True,  "4 min de faixa longa"),
     (Play("A", "T", 1, duration=600, listened=239), False, "menos de 4 min"),
     (Play("A", "T", 1, duration=20,  listened=20),  False, "faixa de 20s"),

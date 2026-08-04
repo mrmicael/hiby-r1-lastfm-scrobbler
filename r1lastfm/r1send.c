@@ -26,9 +26,17 @@
  *       isto tem de sair ENQUANTO a faixa toca, e não fica em fila: se não
  *       der para mandar, simplesmente não aconteceu.
  *
- * As regras vêm do Last.fm: a faixa precisa durar mais de 30 s e ter sido
- * ouvida por mais da metade, ou por 4 minutos, o que vier antes. Quanto tempo
- * foi ouvido sai do intervalo entre uma linha do histórico e a seguinte.
+ * A faixa precisa durar mais de 30 s e ter sido ouvida quase inteira: 90%
+ * dela, ou 4 minutos, o que vier antes. O Last.fm se contenta com metade;
+ * aqui a régua é mais alta porque com metade uma faixa largada no meio sobe
+ * ao perfil como se tivesse sido ouvida — foi a reclamação de quem usou.
+ *
+ * Quanto tempo foi ouvido vem MEDIDO, no marcador t1: o daemon conta os
+ * segundos em que sai som de cada faixa. O intervalo entre uma linha do
+ * histórico e a seguinte continua no código como reserva, para filas gravadas
+ * por um daemon anterior ao t1, mas ele responde outra pergunta — "quanto
+ * tempo passou" e não "quanto tocou" —, e a diferença entre as duas é o que
+ * fazia quem pausa no meio perder a música.
  */
 
 #include <stdio.h>
@@ -45,6 +53,36 @@ typedef unsigned long long u64;
 #define TXT        512
 #define MIN_FAIXA  30
 #define CHEIA      240
+/* Quanto da faixa é preciso ter ouvido, em porcento.
+ *
+ * O Last.fm pede metade. Aqui a régua é mais alta de propósito: com metade,
+ * uma faixa que você largou no meio sobe para o seu perfil como se você a
+ * tivesse ouvido, e foi exatamente essa a reclamação — "pulei e contabilizou
+ * como se tivesse escutado toda".
+ *
+ * E metade tinha um arredondamento a mais: `duracao / 2` em divisão inteira
+ * dá 62 para uma faixa de 125 s, e 62 >= 62 passa. Ou seja, 49,6% da faixa
+ * contava. A conta agora arredonda para cima, com o `+ 99`.
+ *
+ * Não são 100% porque trocar de faixa um ou dois segundos antes do fim é o
+ * caso normal de quem usa o aparelho — em 100% quase nada subiria. 90% é
+ * "ouviu até o fim" na prática, sem ser refém do último segundo.
+ */
+#define MIN_PCT    90
+/* Tetos da margem que a incerteza da medição concede.
+ *
+ * O daemon diz, junto com o tempo medido, quanto dele é incerto: uma vez o
+ * intervalo do laço para cada vez que o áudio começou ou parou entre duas
+ * olhadas. Faixa ouvida direto tem duas trocas e quase nenhuma incerteza;
+ * faixa pausada três vezes tem oito, e é justo cobrá-la com a mesma folga com
+ * que foi medida. Um pulo não ganha nada: pular dá uma troca só.
+ *
+ * Os dois tetos existem para a folga nunca virar licença. O absoluto pega
+ * uma fila com incerteza absurda; o proporcional garante que ela nunca
+ * derrube a regra em mais de dez pontos — dos 90% sobra um piso de 80% da
+ * faixa tocado, por pior que a medição tenha sido. */
+#define MARGEM_MAX 30L
+#define MARGEM_PCT 10L
 /* O Last.fm recusa horas com mais de 14 dias; fica uma folga de um dia. */
 #define VELHO      (13 * 86400L)
 /* Antes disto o relógio do aparelho claramente não tinha sido acertado. */
@@ -155,7 +193,7 @@ typedef struct {
     /* Início declarado pela própria linha, em vez de deduzido.
      *
      * O caminho local não tem como saber: a linha do histórico só aparece
-     * quando a faixa acaba, e o começo é inferido. O Tidal tem — o daemon vê
+     * quando a faixa começa, e o fim vem da linha seguinte. O Tidal tem — o daemon vê
      * a faixa trocar, então sabe o segundo exato em que ela entrou. Quando
      * este campo vem preenchido ele manda, e o tempo ouvido deixa de ser uma
      * estimativa. Zero quer dizer "não sei", que é o caso de toda linha
@@ -167,6 +205,22 @@ typedef struct {
     int  recuperada;
     long duracao;
     long ouviu;         /* -1 = não dá para saber */
+    /* Tempo MEDIDO pelo daemon: segundos em que o pcm esteve aberto com esta
+     * faixa em curso, somados. Vem do marcador t1 e é a única informação
+     * honesta que existe sobre quanto a faixa tocou — todo o resto é dedução
+     * a partir de carimbos, que a pausa e o daemon subindo no meio quebram.
+     * -1 = a fila não trouxe t1 para esta faixa (linha antiga, ou faixa que
+     * ainda não fechou). */
+    long medido;
+    /* A régua do t1: o maior espaço entre duas olhadas do daemon. Um número
+     * medido de 60 em 60 s não pode ser cobrado como exato. */
+    long regua;
+    /* O daemon já disse que esta faixa acabou (t1 com o campo "fim").
+     *
+     * A medida sai em parcelas enquanto a faixa toca, então "tem medida" não
+     * quer dizer "terminou": sem esta marca, uma faixa no segundo 35 de 133
+     * apareceria na planilha como "skipped" no meio da música. */
+    int  fechada;
     int  sessao;
     char artista[TXT];
     char titulo[TXT];
@@ -329,6 +383,35 @@ static int carregar(const char *caminho, Fila *f)
             continue;
         }
         if (!strcmp(c[0], "c1")) { f->suspeito_ate = atol(c[1]); continue; }
+        if (!strcmp(c[0], "t1") && nc >= 3) {
+            /* t1 <rowid> <segundos ouvidos> <incerteza> [fim]
+             *
+             * O daemon dizendo quanto daquela faixa tocou de verdade —
+             * contado com o pcm na mão, não deduzido de carimbos — e quanto
+             * disso é incerto.
+             *
+             * Soma-se, porque uma faixa pode ser medida em mais de um pedaço:
+             * um reinício no meio da música deixa metade da medição numa
+             * linha e metade na outra. O "fim" é o daemon dizendo que aquela
+             * faixa acabou; sem ele, ela ainda estava tocando.
+             *
+             * Vem DEPOIS da linha p1 na fila (a faixa abre e só então
+             * fecha), então a faixa já está no vetor quando isto chega. */
+            long r = atol(c[1]);
+            long seg = atol(c[2]);
+            long reg = (nc > 3) ? atol(c[3]) : 0;
+            if (seg < 0) seg = 0;
+            if (reg < 0) reg = 0;
+            for (j = 0; j < f->n; j++) {
+                if (f->v[j].rowid != r) continue;
+                f->v[j].medido = (f->v[j].medido < 0)
+                                 ? seg : f->v[j].medido + seg;
+                if (reg > f->v[j].regua) f->v[j].regua = reg;
+                if (nc > 4 && !strcmp(c[4], "fim")) f->v[j].fechada = 1;
+                break;
+            }
+            continue;
+        }
         if (!strcmp(c[0], "f1")) {
             /* O áudio parou nesta hora. É a única coisa aqui que fecha uma
              * faixa, porque é a única que foi medida: o daemon olhou o pcm e
@@ -363,6 +446,8 @@ static int carregar(const char *caminho, Fila *f)
             e->visto   = atol(c[2]);
             e->duracao = atol(c[7]);
             e->ouviu   = -1;
+            e->medido  = -1;
+            e->regua   = 0;
             e->sessao  = sessao;
             /* Campo 11, opcional. Linhas antigas têm um tab final e nada
              * depois, então c[10] existe mas vem vazio. */
@@ -464,6 +549,24 @@ static int carregar(const char *caminho, Fila *f)
             fim = fim_da_faixa(f, i, fecha, nfecha, abertura, agora_ref);
         }
 
+        /* Havendo medida, ela manda — e sem concorrência.
+         *
+         * A dedução pelo espaço entre linhas responde "quanto tempo passou",
+         * e a pergunta é "quanto tocou". Os dois números só coincidem quando
+         * ninguém pausa, ninguém liga o aparelho no meio de uma faixa e nada
+         * fica aberto no fim da lista. Quando divergem, é sempre a dedução
+         * que está errada: ela contou silêncio como música.
+         *
+         * Ficou de fora deste `if` só quem não tem t1 nenhum: fila gravada
+         * por um daemon anterior a isto. Para essas linhas a dedução segue
+         * valendo, porque é o que existe. */
+        if (e->medido >= 0) {
+            e->ouviu = e->medido;
+            if (e->duracao > 0 && e->ouviu > e->duracao)
+                e->ouviu = e->duracao;
+            continue;
+        }
+
         if (fim <= e->inicio) {
             /* Ainda tocando, ou o fim é desconhecido: sem tempo ouvido. A
              * linha fica na fila e a leitura seguinte já a fecha. */
@@ -543,10 +646,40 @@ static int ja_enviado(const Enviados *e, long rowid)
     return 0;
 }
 
+/* Ouviu o bastante para contar?
+ *
+ * Esta conta estava escrita duas vezes — aqui e no relatório do cartão — e as
+ * duas cópias já discordaram uma vez, com o CSV dizendo "skipped" para faixa
+ * mandada. Agora é uma função só, e quem quiser mudar a regra muda num lugar.
+ *
+ * A margem não é generosidade: é a incerteza da própria medição, e ela é
+ * assimétrica. O pcm é olhado de tantos em tantos segundos, então cada vez
+ * que o áudio para ou volta, a hora exata disso se perde dentro de um
+ * intervalo — e o pedaço tocado ali não entrou na soma. Medido ao vivo: uma
+ * pausa de 6 segundos foi contada como 15 pelo daemon, que olhava de 15 em
+ * 15. Os 9 de diferença são música que tocou e não foi somada.
+ *
+ * Cobrar os 90% de um número que sabidamente veio curto reprovaria faixa
+ * ouvida até o fim. É esse o defeito que fazia quem pausa no meio perder a
+ * música.
+ */
+static int ouviu_bastante(const Exec *e)
+{
+    long precisa, margem, teto;
+    if (e->duracao <= 0 || e->ouviu < 0) return 1;   /* sem como julgar */
+    precisa = (e->duracao * MIN_PCT + 99) / 100;
+    if (precisa > CHEIA) precisa = CHEIA;
+    margem = (e->medido >= 0) ? e->regua : 0;
+    if (margem < 0) margem = 0;
+    if (margem > MARGEM_MAX) margem = MARGEM_MAX;
+    teto = (e->duracao * MARGEM_PCT) / 100;
+    if (margem > teto) margem = teto;
+    return e->ouviu + margem >= precisa;
+}
+
 /* A faixa conta como execução? */
 static int vale(const Exec *e, long agora, long suspeito_ate)
 {
-    long precisa;
     if (!e->artista[0] || !e->titulo[0]) return 0;
     if (e->visto <= 0 || e->inicio <= 0) return 0;
     if (e->visto <= suspeito_ate) return 0;
@@ -554,12 +687,7 @@ static int vale(const Exec *e, long agora, long suspeito_ate)
     if (e->inicio > agora + 300) return 0;
     if (agora - e->inicio > VELHO) return 0;
     if (e->duracao > 0 && e->duracao < MIN_FAIXA) return 0;
-    if (e->duracao > 0 && e->ouviu >= 0) {
-        precisa = e->duracao / 2;
-        if (precisa > CHEIA) precisa = CHEIA;
-        if (e->ouviu < precisa) return 0;
-    }
-    return 1;
+    return ouviu_bastante(e);
 }
 
 /* ------------------------------------------------------------------ */
@@ -965,7 +1093,6 @@ static void csv_iso(char *out, size_t lim, long epoca)
 static const char *situacao(const Exec *e, long agora, long suspeito_ate,
                             int enviado)
 {
-    long precisa;
     if (enviado) return "sent";
     if (!e->artista[0] || !e->titulo[0]) return "no-metadata";
     if (e->visto <= suspeito_ate) return "bad-clock";
@@ -973,11 +1100,23 @@ static const char *situacao(const Exec *e, long agora, long suspeito_ate,
     if (e->inicio > agora + 300) return "future";
     if (agora - e->inicio > VELHO) return "too-old";
     if (e->duracao > 0 && e->duracao < MIN_FAIXA) return "track-too-short";
-    if (e->duracao > 0 && e->ouviu >= 0) {
-        precisa = e->duracao / 2;
-        if (precisa > CHEIA) precisa = CHEIA;
-        if (e->ouviu < precisa) return "skipped";
-    }
+    /* Uma faixa que não acabou não foi pulada. Dizer "skipped" para a música
+     * que está tocando agora é o tipo de mentirinha que faz a pessoa achar
+     * que o programa está quebrado.
+     *
+     * Duas maneiras de estar em curso, e as duas contam: o daemon nunca a
+     * fechou (não há t1 com "fim"), ou não há medida nenhuma e ela ainda não
+     * teve tempo de acabar.
+     *
+     * O relógio entra nas duas: se já passou mais do que a faixa dura, ela
+     * acabou de algum jeito — o daemon pode ter morrido antes de fechá-la — e
+     * a palavra certa volta a ser skipped. Sem essa parte, um lote de faixas
+     * antigas sem medida, que é o que toda fila anterior a isto é, apareceria
+     * inteiro como "tocando agora". */
+    if (!e->fechada && !(e->medido < 0 && e->ouviu > 0)
+        && agora - e->inicio <= (e->duracao > 0 ? e->duracao : DUR_PADRAO))
+        return "playing";
+    if (!ouviu_bastante(e)) return "skipped";
     return "pending";
 }
 

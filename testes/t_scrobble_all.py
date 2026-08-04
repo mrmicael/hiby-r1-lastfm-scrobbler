@@ -26,6 +26,7 @@ SUITE = [
     ("idiomas e catalogo",           "t_idioma.py",      120),
     ("registro ao vivo na janela",    "t_painel.py",      180),
     ("remendo de firmware (travado)", "t_firmware.py",     60),
+    ("curl: prova antes de trocar",  "t_curl.py",         60),
 ]
 res = []
 for rot, script, lim in SUITE:

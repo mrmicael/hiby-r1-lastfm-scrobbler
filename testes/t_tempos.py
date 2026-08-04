@@ -99,23 +99,37 @@ check("City Walls: a hora e a que ela COMECOU",
 rf = r["RAWFEAR"]
 check("RAWFEAR: ainda tocando, nao leva credito nenhum",
       rf["seconds_heard"] == "0", f"{rf['seconds_heard']}s")
-check("RAWFEAR: NAO e enviada como terminada", rf["status"] == "skipped",
+# "playing" e nao "skipped": a faixa nao foi pulada, ela nao acabou. As duas
+# nao sobem, mas so uma delas e verdade — e e essa que a pessoa le no CSV.
+check("RAWFEAR: NAO e enviada como terminada", rf["status"] == "playing",
+      rf["status"])
+check("RAWFEAR: e nao aparece como enviada", rf["status"] != "sent",
       rf["status"])
 
 print()
 print("=" * 74)
 print("2. a mesma sequencia depois que o audio para")
 print("=" * 74)
-# O daemon viu o audio parar 3 minutos depois de RAWFEAR comecar: ela tocou
-# 180 de 202 segundos — passa da metade, entao conta.
+# O daemon viu o audio parar depois de RAWFEAR ter tocado quase inteira: 195
+# de 202 segundos. A regua e 90% da faixa (182 s aqui), entao conta.
 fila = (f"b1\t{CW - 60}\n" + p1(1, CW, "City Walls", 322) + "\n"
-        + p1(2, RF, "RAWFEAR", 202) + "\n" + f"f1\t{RF + 180}\n")
+        + p1(2, RF, "RAWFEAR", 202) + "\n" + f"f1\t{RF + 195}\n")
 r = rodar(fila, "parou")
-check("RAWFEAR: 180s dos 202s", r["RAWFEAR"]["seconds_heard"] == "180",
+check("RAWFEAR: 195s dos 202s", r["RAWFEAR"]["seconds_heard"] == "195",
       r["RAWFEAR"]["seconds_heard"])
 check("RAWFEAR: agora sim vai", r["RAWFEAR"]["status"] == "pending",
       r["RAWFEAR"]["status"])
 check("City Walls nao mudou", r["City Walls"]["seconds_heard"] == "322")
+
+# A beirada, que e o que o usuario pediu: parar aos 180 de 202 (89%) NAO
+# conta. Antes a regua era metade, e uma faixa largada no meio subia para o
+# perfil como se tivesse sido ouvida inteira.
+fila = (f"b1\t{RF - 60}\n" + p1(3, RF, "Quase", 202) + "\n"
+        + f"f1\t{RF + 180}\n")
+r = rodar(fila, "quase")
+check("parar a 89% da faixa nao conta", r["Quase"]["status"] == "skipped",
+      f"{r['Quase']['seconds_heard']}s de {r['Quase']['track_seconds']}s "
+      f"-> {r['Quase']['status']}")
 
 print()
 print("=" * 74)
@@ -141,7 +155,7 @@ fila = f"b1\t{AGORA - 60}\n" + p1(20, AGORA - 30, "Recem comecada", 300) + "\n"
 r = rodar(fila, "aberta")
 check("nao leva credito", r["Recem comecada"]["seconds_heard"] == "0",
       r["Recem comecada"]["seconds_heard"])
-check("e nao e enviada", r["Recem comecada"]["status"] == "skipped",
+check("e nao e enviada", r["Recem comecada"]["status"] == "playing",
       r["Recem comecada"]["status"])
 
 # Mas se ja passou tempo de sobra e o daemon nao esta mais la para dizer,
@@ -194,6 +208,163 @@ check("a hora e a da linha, nao a linha menos a duracao",
       int(r["Marcada"]["started_at_epoch"]) == T0 + 600,
       f"{r['Marcada']['started_at_epoch']} vs {T0 + 600} "
       f"(o errado seria {T0 + 600 - 240})")
+
+print()
+print("=" * 74)
+print("6. o tempo MEDIDO manda; a deducao pelos carimbos e so reserva")
+print("=" * 74)
+# O relato da vi: faixas subindo no instante em que comecavam, aparecendo no
+# perfil como scrobble e como "scrobbling now" ao mesmo tempo. A causa era
+# sempre a mesma — o tempo ouvido vinha do ESPACO entre carimbos, e o espaco
+# nao e a musica. Basta uma pausa, ou o daemon subir no meio, para os dois
+# numeros divergirem, e quando divergem quem erra e a deducao.
+#
+# O marcador t1 e o daemon dizendo o que mediu com o pcm na mao:
+#     t1 <rowid> <segundos ouvidos> <regua da medicao> [fim]
+#
+# Sai em parcelas enquanto a faixa toca — um travamento nao pode levar a
+# medicao junto — e a ULTIMA leva "fim". Sem esse campo nao daria para separar
+# "tocou 35 de 133 e acabou ai" de "esta no segundo 35 e continua".
+def t1(rowid, ouvido, regua=15, fim=True):
+    return f"t1\t{rowid}\t{ouvido}\t{regua}" + ("\tfim" if fim else "")
+
+
+# Espaco de 20 minutos entre uma linha e a outra, mas so 44s de audio: a
+# pessoa apertou play, saiu, e a musica ficou pausada. Pela deducao antiga
+# isso era "ouviu 300 de 300" e subia.
+INI = AGORA - 1500
+fila = (f"b1\t{INI - 60}\n" + p1(50, INI, "Pausada", 300) + "\n"
+        + t1(50, 44) + "\n"
+        + p1(51, INI + 1200, "Depois", 300) + "\n" + t1(51, 295) + "\n")
+r = rodar(fila, "medido")
+check("a medida vence o espaco de 20 minutos",
+      r["Pausada"]["seconds_heard"] == "44",
+      f"{r['Pausada']['seconds_heard']}s de 300s")
+check("e por isso ela NAO sobe", r["Pausada"]["status"] == "skipped",
+      r["Pausada"]["status"])
+check("a que tocou de verdade sobe", r["Depois"]["status"] == "pending",
+      f"{r['Depois']['seconds_heard']}s de 300s")
+
+# Duas medidas do mesmo rowid se SOMAM. E o caso de "ouvi metade, almocei,
+# voltei e ouvi o resto": a pausa longa fecha a faixa com o que tinha, e o
+# resto chega depois. Somar e o que faz isso contar como a musica inteira.
+fila = (f"b1\t{INI - 60}\n" + p1(60, INI, "Em duas partes", 300) + "\n"
+        + t1(60, 150) + "\n" + t1(60, 145) + "\n")
+r = rodar(fila, "somado")
+check("as duas medidas somam", r["Em duas partes"]["seconds_heard"] == "295",
+      f"{r['Em duas partes']['seconds_heard']}s")
+check("e a faixa inteira sobe", r["Em duas partes"]["status"] == "pending",
+      r["Em duas partes"]["status"])
+
+# A regua e a incerteza da medicao, nao folga. 268 de 300 da 89,3%: reprova
+# por 2 segundos. Com a regua de 15s — o daemon so descobre que o audio parou
+# na volta seguinte — passa, que e o certo para faixa ouvida ate o fim.
+fila = (f"b1\t{INI - 60}\n" + p1(70, INI, "Quase", 300) + "\n"
+        + t1(70, 268, 15) + "\n")
+r = rodar(fila, "regua")
+check("a margem da regua salva a faixa ouvida ate o fim",
+      r["Quase"]["status"] == "pending",
+      f"{r['Quase']['seconds_heard']}s de 300s -> {r['Quase']['status']}")
+
+# Mas ela nao salva um pulo: 150 de 300 nao vira 300 com regua nenhuma.
+fila = (f"b1\t{INI - 60}\n" + p1(71, INI, "Pulo", 300) + "\n"
+        + t1(71, 150, 60) + "\n")
+r = rodar(fila, "regua2")
+check("e nao salva um pulo pela metade", r["Pulo"]["status"] == "skipped",
+      f"{r['Pulo']['seconds_heard']}s de 300s -> {r['Pulo']['status']}")
+
+# O PISO DA REGRA. A margem e a incerteza de quem pausou muitas vezes, e uma
+# incerteza grande nao pode virar licenca: ela nunca derruba a regra em mais
+# de dez pontos, entao dos 90% sobra um piso de 80% da faixa tocado.
+#
+# A faixa aqui tem 200s de proposito. Acima de uns 267s quem manda e o teto
+# de 240s (a regra dos "quatro minutos" do Last.fm), e nao os 90% — a margem
+# nem chega a ser consultada, e o teste nao estaria testando nada.
+#
+# A fila alega 600s de incerteza: a margem util e 20 (10% de 200), nao 600.
+for medido, esperado in ((159, "skipped"), (160, "pending")):
+    fila = (f"b1\t{INI - 60}\n"
+            + p1(90 + medido, INI, f"Piso{medido}", 200) + "\n"
+            + t1(90 + medido, medido, 600) + "\n")
+    r = rodar(fila, f"piso{medido}")
+    check(f"com {medido}s de 200s ({medido // 2}%) -> {esperado}",
+          r[f"Piso{medido}"]["status"] == esperado,
+          r[f"Piso{medido}"]["status"])
+
+print()
+print("=" * 74)
+print("6b. a faixa que esta tocando agora nao e chamada de 'skipped'")
+print("=" * 74)
+# A medicao sai em parcelas, entao "ja tem medida" nao quer dizer "acabou".
+# Uma faixa no segundo 35 de 133 tem 26% medidos — se a planilha do cartao
+# dissesse "skipped" ali, a pessoa leria uma acusacao falsa contra o proprio
+# programa no meio da musica que esta ouvindo.
+AGORINHA = AGORA - 35
+fila = (f"b1\t{AGORINHA - 10}\n" + p1(80, AGORINHA, "Tocando agora", 133) + "\n"
+        + t1(80, 30, 15, fim=False) + "\n")
+r = rodar(fila, "emcurso")
+check("parcela sem 'fim' e faixa em curso, nao pulada",
+      r["Tocando agora"]["status"] == "playing",
+      f"{r['Tocando agora']['seconds_heard']}s de 133s -> "
+      f"{r['Tocando agora']['status']}")
+
+# A MESMA medida, agora com o daemon dizendo que a faixa acabou: 30 de 133 e
+# pulo, e ai sim a palavra e skipped.
+fila = (f"b1\t{AGORINHA - 10}\n" + p1(81, AGORINHA, "Largada", 133) + "\n"
+        + t1(81, 30, 15) + "\n")
+r = rodar(fila, "largada")
+check("com 'fim', a mesma medida vira pulo",
+      r["Largada"]["status"] == "skipped",
+      f"{r['Largada']['seconds_heard']}s de 133s -> {r['Largada']['status']}")
+
+# E uma faixa que nunca fechou porque o aparelho travou nao fica "tocando"
+# para sempre: passado o tempo dela, acabou de algum jeito.
+VELHA = AGORA - 900
+fila = (f"b1\t{VELHA - 10}\n" + p1(82, VELHA, "Travou no meio", 133) + "\n"
+        + t1(82, 30, 15, fim=False) + "\n")
+r = rodar(fila, "travou")
+check("faixa velha sem fecho nao fica 'tocando' para sempre",
+      r["Travou no meio"]["status"] == "skipped",
+      f"{r['Travou no meio']['status']}")
+
+print()
+print("=" * 74)
+print("7. as duas implementacoes tem de CONCORDAR sobre o tempo medido")
+print("=" * 74)
+# O CSV do cartao sai do C e o que sobe ao Last.fm passa pelo Python. Se as
+# duas contas divergirem, a pessoa le uma coisa no cartao e ve outra no
+# perfil — e foi assim que uma versao anterior mandou faixa que o CSV
+# chamava de "skipped".
+from r1lastfm import fila as fila_py                      # noqa: E402
+
+CASOS = [
+    ("pausada",     p1(50, INI, "Pausada", 300),        t1(50, 44)),
+    ("somada",      p1(60, INI, "Em duas partes", 300), t1(60, 150) + "\n"
+                                                        + t1(60, 145)),
+    ("na_regua",    p1(70, INI, "Quase", 300),          t1(70, 268, 15)),
+    ("pulo",        p1(71, INI, "Pulo", 300),           t1(71, 150, 60)),
+    ("sem_medida",  p1(72, INI, "Sem t1", 300),         ""),
+    ("piso_baixo",  p1(73, INI, "Piso baixo", 200),     t1(73, 159, 600)),
+    ("piso_alto",   p1(74, INI, "Piso alto", 200),      t1(74, 160, 600)),
+    ("curta",       p1(75, INI, "Curta", 60),           t1(75, 50, 600)),
+]
+for nome, linha_p1, linhas_t1 in CASOS:
+    texto = f"b1\t{INI - 60}\n" + linha_p1 + "\n"
+    if linhas_t1:
+        texto += linhas_t1 + "\n"
+    r = rodar(texto, f"conc_{nome}")
+    do_c = list(r.values())[0]
+    regs, _ = fila_py.ler(texto)
+    rec = fila_py.reconstruir(regs, agora=AGORA)
+    py = rec.execucoes + [p for p, _ in rec.descartadas]
+    check(f"{nome}: mesmo tempo ouvido nos dois",
+          len(py) == 1 and py[0].listened == int(do_c["seconds_heard"]),
+          f"C={do_c['seconds_heard']}s py="
+          f"{py[0].listened if py else '?'}s")
+    sobe_c = do_c["status"] in ("pending", "sent")
+    sobe_py = bool(py) and py[0].scrobblable()[0]
+    check(f"{nome}: mesma decisao de enviar nos dois",
+          sobe_c == sobe_py, f"C={sobe_c} py={sobe_py}")
 
 import shutil
 shutil.rmtree(BASE, ignore_errors=True)

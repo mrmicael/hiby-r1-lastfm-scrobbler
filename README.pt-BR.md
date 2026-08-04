@@ -63,8 +63,8 @@ a qualquer momento no canto inferior direito da janela.
 | **Coleta offline** | Uma viagem inteira sem rede: o que tocou fica guardado no aparelho e sai quando aparecer conexão. Nada se perde, nada é chutado. |
 | **Duas saídas, ao mesmo tempo** | Sozinho pelo WiFi do R1, e/ou pelo cabo a partir do PC. Nunca se duplicam, porque o que foi aceito fica anotado no aparelho. |
 | **“Tocando agora” ao vivo** | A faixa em reprodução pulsa no seu perfil do Last.fm — para arquivo local e para Tidal. |
-| **Tempo ouvido honesto** | Metade da faixa ou quatro minutos, a regra do próprio Last.fm. Uma faixa que você pulou aos 0:19 é anotada como 19 segundos e não vai. |
-| **Rápido** | O scrobble aparece uns 30 segundos depois de a faixa acabar, e não num relógio de doze minutos. |
+| **Tempo ouvido honesto** | Os segundos são **medidos** — áudio realmente saindo do aparelho —, e não deduzidos do espaço entre duas linhas do histórico. Pausar suspende a contagem em vez de encerrar a faixa; uma faixa que você pulou aos 0:19 é anotada como 19 segundos e não vai. E para contar, a faixa precisa ter tocado quase até o fim: 90% dela, mais rígido que a metade com que o Last.fm se contenta. |
+| **Rápido** | O scrobble aparece uns poucos segundos depois de a faixa acabar, e não num relógio de doze minutos. |
 | **Registro e planilha no cartão** | `<cartao>/r1lastfm/scrobbles.csv` e `r1lastfm.log`. Tire o cartão, abra o CSV numa planilha — sem ADB, sem este programa, sem nada. |
 | **Barato** | 1 ms de processador por ciclo, **zero processos filhos** parado, 880 kB de RAM. Medido no aparelho. |
 | **Seu** | Sua própria chave de API do Last.fm, guardada só no seu computador. Sem conta, sem servidor, sem telemetria, nada liga para casa. |
@@ -84,9 +84,12 @@ a qualquer momento no canto inferior direito da janela.
   clique em enviar, pronto. Os dois caminhos convivem sem duplicar nada.
 * **“Tocando agora”, ao vivo.** A faixa em reprodução aparece pulsando no seu
   perfil, se você quiser.
-* **Aplica as regras do próprio Last.fm** para o que vale: metade da faixa, ou
-  quatro minutos. Faixa pulada no meio não entra.
-* **Envia uns 30 segundos depois** de a faixa acabar, e não num relógio de
+* **Só conta o que você ouviu de verdade**, e conta medindo o áudio: 90% da
+  faixa, ou quatro minutos, o que vier antes. O Last.fm se contenta com
+  metade, e isso fazia uma faixa largada no meio subir como se tivesse sido
+  ouvida — por isso a régua aqui é mais alta. Pausar no meio e voltar continua
+  valendo como ter ouvido a música; pular na metade, não.
+* **Envia uns poucos segundos depois** de a faixa acabar, e não num relógio de
   doze minutos.
 * **Grava um registro e uma planilha no cartão**, em `<cartao>/r1lastfm/`:
   `r1lastfm.log` e `scrobbles.csv`. Tire o cartão, abra o CSV numa planilha —
@@ -106,9 +109,10 @@ started_at,started_at_epoch,artist,track,album,album_artist,seconds_heard,track_
 2026-08-01 16:53:38,1785613980,Remi Wolf,Twiggy,Twiggy,,38,209,skipped,1000000011
 ```
 
-O `status` é um de `sent`, `pending`, `skipped`, `track-too-short`,
-`too-old`, `future`, `bad-clock` ou `no-metadata` — dá para ver não só o que
-foi, mas por que o resto não foi.
+O `status` é um de `sent`, `pending`, `playing`, `skipped`,
+`track-too-short`, `too-old`, `future`, `bad-clock` ou `no-metadata` — dá para
+ver não só o que foi, mas por que o resto não foi. O `playing` é a faixa que
+ainda não terminou; não é recusa, e vira `pending` sozinho quando ela acaba.
 
 ## O que ele custa de bateria
 
@@ -372,10 +376,32 @@ hora de nada — e é a hora que o Last.fm precisa.
 
 Então o coletor (`collector.c`, um leitor de SQLite escrito à mão, ~770 linhas,
 sem libsqlite) olha o banco de tempos em tempos e anota o **relógio do
-aparelho** no momento em que cada linha nova aparece. O intervalo entre duas
-linhas dá o tempo que você ouviu da primeira. A duração de cada faixa também não
-está no banco: é calculada de `size * 8 / bit_rate`, o que bateu com o tempo
-real dentro de meio segundo nos testes.
+aparelho** no momento em que cada linha nova aparece. Isso dá a hora em que a
+faixa começou. A duração de cada faixa também não está no banco: é calculada de
+`size * 8 / bit_rate`, o que bateu com o tempo real dentro de meio segundo nos
+testes.
+
+**Quanto você ouviu é medido, não deduzido.** O atalho óbvio — o espaço entre
+duas linhas do histórico — é tempo de relógio, não de música, e quebra de três
+jeitos que acontecem todo dia: você pausa e o espaço conta a pausa como
+escuta; o coletor sobe com música já tocando e a faixa leva crédito por um
+tempo em que ninguém estava olhando; a última faixa de uma sessão não tem
+linha seguinte nenhuma. Em vez disso o coletor conta os segundos em que sai
+som do aparelho, e anota o total.
+
+Pausar não encerra a faixa, porque o aparelho diz a diferença: o dispositivo
+de áudio fecha, mas o player mantém o **arquivo** aberto. Medido ao vivo, com
+a pausa apertada na mão — 50 s tocando, 50 s pausado com o arquivo ainda
+aberto, 29 s tocando de novo, e a linha do histórico nunca mudou, porque
+retomar não escreve nada. Som parado e nenhum arquivo aberto quer dizer que a
+reprodução acabou de verdade.
+
+A medição carrega a própria incerteza junto: o estado do áudio é olhado de
+tantos em tantos segundos, então cada vez que ele começa ou para, o instante
+exato se perde dentro de um intervalo. Essa incerteza é somada e vai junto, e
+a régua dos 90% é aplicada com ela — senão uma faixa ouvida até o fim seria
+recusada por alguns segundos que ninguém teria como contar. Ela nunca derruba
+a régua em mais de dez pontos.
 
 Detalhes que só aparecem mexendo no aparelho de verdade, e que estão
 documentados nos comentários do código:

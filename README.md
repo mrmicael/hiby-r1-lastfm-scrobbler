@@ -68,8 +68,8 @@ from the bottom-right corner of the window at any time.
 | **Offline collection** | A whole trip with no network: what played stays on the device and goes out when a connection appears. Nothing is lost, nothing is guessed. |
 | **Two ways out, both at once** | Automatically over the R1's Wi-Fi, and/or over the cable from your PC. They never duplicate each other, because what was accepted is written down on the device. |
 | **Live “now playing”** | The track you are playing pulses on your Last.fm profile — for local files and for Tidal. |
-| **Honest listening times** | Half the track or four minutes, Last.fm's own rule. A track you skipped at 0:19 is recorded as 19 seconds and does not go. |
-| **Fast** | The scrobble appears about 30 seconds after the track ends, not on a twelve-minute timer. |
+| **Honest listening times** | The seconds are **measured** — audio actually coming out of the device — not inferred from the gap between two history rows. Pausing suspends the count instead of ending the track; a track you skipped at 0:19 is recorded as 19 seconds and does not go. A track has to play almost to the end to count: 90% of it, stricter than the half Last.fm settles for. |
+| **Fast** | The scrobble appears a couple of seconds after the track ends, not on a twelve-minute timer. |
 | **A log and a spreadsheet on the SD card** | `<card>/r1lastfm/scrobbles.csv` and `r1lastfm.log`. Pull the card, open the CSV in a spreadsheet — no ADB, no this program, nothing. |
 | **Cheap** | 1 ms of CPU per cycle, **zero child processes** while idle, 880 kB of RAM. Measured on the device. |
 | **Yours** | Your own Last.fm API key, stored only on your computer. No account, no server, no telemetry, nothing phones home. |
@@ -89,9 +89,12 @@ from the bottom-right corner of the window at any time.
   plug in, click send, done. Both paths coexist without duplicating anything.
 * **“Now playing”, live.** The track you are playing shows up pulsing on your
   profile, if you want it.
-* **Applies Last.fm's own rules** for what counts: half the track, or four
-  minutes. A track you skipped halfway does not go.
-* **Sends within ~30 seconds** of a track ending, not on a twelve-minute
+* **Counts only what you actually heard**, and counts it by measuring the
+  audio: 90% of the track, or four minutes, whichever comes first. Last.fm
+  settles for half, which meant a track you walked away from went up as if you
+  had listened to it — so the bar here is higher. Pausing in the middle and
+  coming back still counts as hearing the song; skipping halfway does not.
+* **Sends within a few seconds** of a track ending, not on a twelve-minute
   timer.
 * **Writes a log and a spreadsheet to the memory card**, at
   `<card>/r1lastfm/`: `r1lastfm.log` and `scrobbles.csv`. Pull the card, open
@@ -111,9 +114,11 @@ started_at,started_at_epoch,artist,track,album,album_artist,seconds_heard,track_
 2026-08-01 16:53:38,1785613980,Remi Wolf,Twiggy,Twiggy,,38,209,skipped,1000000011
 ```
 
-`status` is one of `sent`, `pending`, `skipped`, `track-too-short`,
-`too-old`, `future`, `bad-clock` or `no-metadata` — so you can see not just
-what went, but why the rest did not.
+`status` is one of `sent`, `pending`, `playing`, `skipped`,
+`track-too-short`, `too-old`, `future`, `bad-clock` or `no-metadata` — so you
+can see not just what went, but why the rest did not. `playing` is the track
+that has not finished yet; it is not a rejection, and it becomes `pending` on
+its own once the track ends.
 
 ## What it costs in battery
 
@@ -372,16 +377,43 @@ time of nothing — and the time is what Last.fm needs.
 
 So the collector (`collector.c`, a hand-written SQLite reader, ~770 lines, no
 libsqlite) looks at the database now and then and writes down the **device's
-clock** at the moment each new row appears. The gap between two rows is how long
-you heard the first one. Track duration is not in the database either: it is
-computed from `size * 8 / bit_rate`, which matched the real length to within
-half a second in testing.
+clock** at the moment each new row appears. That gives the time a track
+started. Track duration is not in the database either: it is computed from
+`size * 8 / bit_rate`, which matched the real length to within half a second in
+testing.
+
+**How long you listened is measured, not inferred.** The obvious shortcut — the
+gap between two history rows — is wall-clock time, not music, and it breaks in
+three ways that happen every day: you pause and the gap counts the pause as
+listening; the collector starts while music is already playing and the track
+gets credited for time when nothing was watching; the last track of a session
+has no next row at all. So instead the collector counts the seconds audio is
+actually coming out of the device, and writes the total down.
+
+Pausing does not end a track, because the device tells the difference: the
+audio device closes but the player keeps the **file** open. Measured live, with
+the pause pressed by hand — 50 s playing, 50 s paused with the file still open,
+29 s playing again, and the history row never changed, because resuming writes
+nothing. Audio out and no file open means playback really stopped.
+
+The measurement carries its own uncertainty: the audio state is sampled every
+so often, so each time it starts or stops, the exact moment is lost inside one
+sampling interval. That uncertainty is added up and sent along, and the 90% bar
+is judged with it — otherwise a track you heard to the end would be rejected
+for a couple of seconds nobody could have counted. It never lowers the bar by
+more than ten points.
 
 Details that only turn up by working on the real device, and that are documented
 in the code's comments:
 
-* the player writes the history row **when the track ends**, not when it starts
-  — measured at 194 s on a 3:14 track;
+* the player writes the history row **when the track starts**, not when it
+  ends — watched live: the row changed the same second the track did, with
+  audio still playing for another 45 s. An earlier measurement claimed the
+  opposite; it was looking at the *previous* track's row, and the 194 s it
+  reported was that track's length;
+* so a track is closed by the *next* one starting. The last track of a run
+  has nothing after it, and is closed by a marker the collector writes when
+  it sees the audio device close;
 * every TEXT value in the database carries a trailing NUL byte (the player
   writes C strings);
 * the card's `most_played.db` is corrupt out of the factory (one row mixes one

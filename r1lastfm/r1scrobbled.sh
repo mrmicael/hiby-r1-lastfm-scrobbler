@@ -41,16 +41,44 @@
 #
 # O segundo relógio
 # -----------------
-# Saber QUANDO a faixa entrou não diz por quanto tempo ela foi ouvida, e o
-# Last.fm só aceita como execução o que passou da metade (ou de 4 minutos).
-# O intervalo entre duas linhas dá esse tempo para todas as faixas menos a
-# última de cada sessão, que não tem uma linha seguinte para fechá-la.
+# A linha entra no banco quando a faixa COMEÇA — observado ao vivo: o player
+# trocou de faixa e a linha apareceu no mesmo segundo, com o áudio ainda
+# tocando por mais quarenta e cinco. Então a hora da linha É o começo dela.
 #
-# Por isso o most_played.db do cartão também é vigiado: ele é gravado num
-# momento diferente do ciclo da faixa, e cada mudança dele vira um marcador
-# com hora. Só o mtime, sem abrir o arquivo — ele tem linhas corrompidas pelo
-# próprio player (uma com o nome de uma faixa e o caminho de outra) e não é
-# confiável como fonte de metadados.
+# Quanto ela tocou, porém, não se deduz de carimbo nenhum: é MEDIDO. A cada
+# volta, com o pcm aberto, o daemon soma o tempo desde a volta anterior, e ao
+# fechar a faixa escreve o total no marcador t1.
+#
+# Deduzir do espaço entre uma linha e a seguinte parece equivalente e não é —
+# esse espaço é tempo de relógio, não tempo de música. Ele quebra em três
+# situações que acontecem todo dia, e as três viraram relato:
+#
+#   • pausa. Pelo espaço entre linhas a faixa "durou" a pausa inteira.
+#   • o daemon subindo com música já tocando. A linha daquela faixa já está no
+#     banco, e o espaço até ela é tempo em que o daemon nem existia — a faixa
+#     subia como ouvida no instante em que começava, aparecendo no perfil como
+#     scrobble e como "ouvindo agora" ao mesmo tempo.
+#   • a última faixa de uma sequência, sem seguinte que a feche.
+#
+# Pausar não fecha faixa: o pcm fecha, mas o player mantém o ARQUIVO aberto, e
+# é essa diferença que separa pausa de fim. Medido no aparelho, com a pausa
+# apertada na mão: 50 s de pcm=1, 50 s de pcm=0 com o arquivo ainda aberto,
+# 29 s de pcm=1 — e o rowid nunca mudou, porque retomar não escreve linha
+# nenhuma no histórico.
+#
+#     pcm=1                  → tocando, conta o tempo
+#     pcm=0 e arquivo aberto → pausado, não conta e não fecha
+#     pcm=0 e nada aberto    → parou, fecha a faixa
+#
+# O marcador f1 continua saindo na hora em que o som para: ele é o teto que as
+# versões antigas do PC usam para deduzir o fim, e serve de diagnóstico. Quem
+# lê o t1 não precisa dele.
+#
+# O most_played.db do cartão também é vigiado, mas ele NÃO fecha faixa: uma
+# mudança nele prova que algo estava acontecendo naquela hora, ou seja é
+# limite inferior, nunca superior. Só o mtime, sem abrir o arquivo — ele tem
+# linhas corrompidas pelo próprio player (uma com o nome de uma faixa e o
+# caminho de outra) e não é confiável como fonte de metadados.
 #
 # Tocando agora
 # --------------
@@ -58,8 +86,10 @@
 # faixa em reprodução e ela aparece pulsando no seu perfil. Isso exige o WiFi
 # ligado, e é o WiFi que custa bateria — a detecção em si são 10 ms por volta.
 #
-# A faixa atual não sai do banco (que só é escrito no fim dela), e sim do
-# arquivo que o player mantém aberto, visto em /proc/PID/fd.
+# A faixa atual poderia sair do banco, que ganha a linha no começo dela —
+# mas a linha diz o que COMEÇOU, e entre isso e a próxima leitura pode ter
+# havido troca. A fonte é direta: o arquivo que o player mantém aberto,
+# visto em /proc/PID/fd.
 #
 # O Tidal
 # -------
@@ -86,8 +116,17 @@
 # Marcadores na fila
 # ------------------
 #   p1  uma reprodução, com os metadados
-#   m1  o most_played foi tocado nesta hora
-#   i1  nada mais aconteceu depois desta hora
+#   t1  <rowid> <n> <incerteza> fim — a faixa tocou <n> segundos, dos quais
+#       até <incerteza> podem ter escapado da contagem. É a única linha daqui
+#       que diz quanto se ouviu; todo o resto é hora de relógio. O campo "fim"
+#       marca a faixa como encerrada; sem ele ela ainda está tocando. Duas t1
+#       do mesmo rowid se SOMAM — um reinício no meio da música deixa metade
+#       da medição numa e metade na outra
+#   m1  o most_played foi tocado nesta hora. Prova que algo tocava, não
+#       que algo parou — limite inferior, nunca superior
+#   i1  nada mais aconteceu depois desta hora. NÃO fecha faixa: é
+#       justamente enquanto uma faixa longa toca que nada acontece
+#   f1  o áudio parou nesta hora, visto no pcm. Teto para quem não tem t1
 #   b1  o daemon começou (houve desligamento ou reinício antes disto)
 #   a1  as próximas n linhas já estavam no banco quando ele começou: tocaram
 #       sem ninguém olhando, e o PC reconstrói as horas em vez de deduzi-las
@@ -104,6 +143,9 @@ REMETENTE=$DIR/r1send
 CURL=$DIR/curl
 FILA=$DIR/fila.tsv
 ESTADO=$DIR/estado
+# Ponto de controle da faixa que está sendo medida agora. Existe só enquanto
+# há faixa aberta; some quando ela fecha. Ver anotar_medida.
+MEDINDO=$DIR/medindo
 ENVIADOS=$DIR/enviados
 SK=$DIR/sk
 SEGREDO=$DIR/segredo
@@ -160,6 +202,21 @@ LOG_SD_MAX=262144
 RAPIDO=15
 LENTO=60
 QUIETOS=8
+
+# De quantos em quantos segundos ouvidos a medição é gravada em disco.
+#
+# É o tamanho do prejuízo num travamento: o que passou disto já está salvo.
+# Trinta segundos custam duas reescritas de um arquivo de vinte bytes por
+# minuto de música, e evitam perder a contagem de uma faixa inteira.
+T1_PASSO=30
+
+# Quanto tempo uma faixa pausada continua sendo a faixa em curso.
+#
+# Enquanto o player mantém o arquivo aberto, a pausa é pausa e a faixa espera.
+# Isto é só o limite de bom senso para o caso de alguém pausar e largar o
+# aparelho ligado: passada meia hora, o que já foi medido é escrito e a faixa
+# sai da mão do daemon, em vez de ficar presa até a próxima música.
+PAUSA_MAX=1800
 
 # "Tocando agora": avisa o Last.fm da faixa em reprodução, o que faz aparecer
 # aquele indicador pulsando no seu perfil. Desligado por padrão, porque só
@@ -322,7 +379,96 @@ atualizar_csv() {
     "$REMETENTE" relatorio "$FILA" "$ENVIADOS" "$CSV_SD" 2>>"$LOG" || :
 }
 
+# Fecha a faixa em curso: escreve quanto dela foi realmente ouvido.
+#
+# A linha t1 leva três coisas: de que faixa se fala (rowid), quantos segundos
+# de áudio aberto foram contados, e quanto disso é incerto. A terceira importa:
+# um número medido de olhada em olhada não pode ser cobrado como se fosse
+# exato, e é o PC quem faz essa conta.
+#
+# A incerteza não é o RAPIDO nem o LENTO: é a soma dos intervalos em que o
+# áudio começou ou parou sem ninguém ver a hora exata. Ver o acumulador, no
+# laço, para o porquê de ela acompanhar as trocas e não o ritmo do laço.
+fechar_faixa_atual() {
+    [ -n "$atual_rowid" ] || return 0
+    # O "fim" é o que separa "tocou 35 dos 133 segundos e acabou aí" de "está
+    # no segundo 35 e continua tocando". Sem ele a planilha do cartão chamaria
+    # de "skipped" a música que a pessoa está ouvindo naquele instante — uma
+    # acusação falsa do programa contra ele mesmo.
+    #
+    # Sai mesmo valendo zero: não é a medida, é o aviso de que acabou. Faixa
+    # pulada no primeiro segundo tem zero a dizer e precisa ser fechada.
+    printf 't1\t%s\t%s\t%s\tfim\n' \
+           "$atual_rowid" "$atual_ouvido" "$atual_granul" >> "$FILA"
+    registrar "faixa $atual_rowid fechada: ${atual_ouvido}s ouvidos" \
+              "(incerteza ${atual_granul}s)"
+    rm -f "$MEDINDO"
+    atual_rowid=""
+    atual_ouvido=0
+    atual_gravado=0
+    atual_granul=0
+    pcm_antes=1
+}
+
+# Guarda a medição em curso num arquivinho, para um travamento não levá-la.
+#
+# O fim nem sempre acontece. Este aparelho reinicia sozinho — travou duas
+# vezes enquanto esta versão era escrita —, e num travamento nenhum trap roda:
+# a contagem, que só existia na memória do daemon, morreria com ele. Foi o que
+# aconteceu com a faixa 272 aqui, de 293 s: o aparelho reiniciou no meio dela
+# e ela ainda assim subiu como ouvida por inteiro, porque sem medida a conta
+# volta a deduzir do relógio.
+#
+# O ponto de controle vai para um arquivo próprio, e não como linhas na fila,
+# porque a fila não é podada nunca: uma linha a cada trinta segundos de música
+# a faria crescer dez vezes mais rápido, para sempre, e ela é lida inteira a
+# cada envio. Aqui é um arquivo de vinte bytes reescrito no lugar.
+#
+# Na partida seguinte o que estiver aqui vira um t1 fechado — ver recuperar_
+# medicao. Fechar normalmente apaga o arquivo, então nunca há os dois.
+anotar_medida() {
+    [ -n "$atual_rowid" ] || return 0
+    printf '%s %s %s\n' "$atual_rowid" "$atual_ouvido" "$atual_granul" \
+        > "$MEDINDO" 2>/dev/null || :
+    atual_gravado=$atual_ouvido
+}
+
+# A medição que ficou órfã de um travamento entra na fila como faixa fechada.
+recuperar_medicao() {
+    [ -f "$MEDINDO" ] || return 0
+    _r=""; _n=""; _g=""
+    read -r _r _n _g < "$MEDINDO" 2>/dev/null || :
+    rm -f "$MEDINDO"
+    [ -n "$_r" ] && [ -n "$_n" ] || return 0
+    [ "$_n" -gt 0 ] 2>/dev/null || return 0
+    printf 't1\t%s\t%s\t%s\tfim\n' "$_r" "$_n" "${_g:-$RAPIDO}" >> "$FILA"
+    registrar "medicao interrompida recuperada: faixa $_r com ${_n}s"
+}
+
+# Acabou de fechar uma faixa: não há razão para esperar o relógio dos doze
+# minutos. Encurta para a espera curta, que existe só para juntar uma
+# sequência de pulos num envio só em vez de um envio por faixa.
+#
+# Vale para os DOIS jeitos de uma faixa fechar. Só a troca de faixa chamava
+# isto, e por isso a última música de cada sessão — justamente a que a pessoa
+# está esperando ver aparecer — ficava até doze minutos parada na fila depois
+# de o aparelho já estar em silêncio.
+adiantar_envio() {
+    [ "$IMEDIATO" = 1 ] || return 0
+    [ "$proximo_envio" = "$ENVIO" ] || return 0
+    falta=$((proximo_envio - ESPERA_IMEDIATO))
+    [ "$falta" -lt 0 ] && falta=0
+    if [ "$desde_envio" -lt "$falta" ]; then
+        desde_envio=$falta
+    fi
+}
+
 limpar() {
+    # O que já foi medido da faixa em curso não pode morrer com o daemon.
+    # Sem isto, desligar o aparelho no meio de uma música jogava fora a
+    # contagem inteira dela — e desligar o aparelho no fim da última música é
+    # o modo normal de terminar de ouvir.
+    fechar_faixa_atual
     rm -f "$TRAVA" "$COPIA" "$PARCIAL" "$TICK" "$CORPO" "$IDS" "$RESP" \
           "$CORPO_NP" "$RESP_NP" "$META"
     exit 0
@@ -465,8 +611,10 @@ mandar_lote() {
 
 # -- "tocando agora" ---------------------------------------------------------
 #
-# O banco não serve para isto: ele só ganha a linha quando a faixa ACABA, e a
-# essa altura não há mais nada tocando para anunciar. A fonte é outra — o
+# O banco não serve para isto. Ele ganha a linha quando a faixa COMEÇA, o
+# que à primeira vista serviria — mas a linha traz o que tocou, não o que
+# está tocando, e entre o começo e a próxima leitura do banco pode ter
+# havido troca. A fonte é outra, e direta — o
 # player mantém o arquivo de áudio aberto, e /proc/PID/fd mostra qual
 # (verificado no aparelho: muda ao pular de faixa).
 #
@@ -768,12 +916,31 @@ achar_cartao && aparar_log_sd
 
 agora=$(date +%s)
 printf 'b1\t%s\n' "$agora" >> "$FILA"
+# Sobrou medição de uma execução que não teve como se despedir? Ela vira faixa
+# fechada agora, antes de qualquer outra coisa mexer na fila.
+recuperar_medicao
 # Quantas colheitas esta execução já fez. A de número zero é a que encontra o
 # que tocou enquanto o daemon estava fora do ar — ver o comentário no laço.
 colheita=0
 # Hora em que a faixa local hoje em curso entrou no histórico. Vazio quando
 # não há nenhuma em aberto. Ver o comentário do f1, no laço.
 aberta_em=""
+# A faixa em curso e quantos segundos de áudio ela já teve. Isto é MEDIDO: a
+# cada volta, se o pcm estiver aberto, o tempo decorrido entra na conta. É o
+# que separa "ouviu" de "estava na tela": pausar não conta, pular não conta,
+# desligar no meio não conta. Ver fechar_faixa_atual e o t1.
+atual_rowid=""
+atual_ouvido=0
+# Quanto do `atual_ouvido` já foi salvo em disco. Ver anotar_medida.
+atual_gravado=0
+# A incerteza acumulada da medição, em segundos: uma vez o intervalo do laço
+# para cada vez que o áudio começou ou parou dentro dele. Ver o acumulador.
+atual_granul=0
+# O pcm na volta anterior, para reconhecer as trocas.
+pcm_antes=1
+ultimo_olhar=$agora
+# Desde quando o som está parado com a faixa ainda aberta. Vazio = tocando.
+parado_desde=""
 if [ "$agora" -lt "$PISO" ]; then
     printf 'c1\t%s\n' "$agora" >> "$FILA"
     registrar "relogio em $agora, anterior ao piso $PISO: horas suspeitas"
@@ -820,17 +987,114 @@ if cp -f "$DB" "$COPIA" 2>/dev/null; then
     if saida=$("$COLETOR" "$COPIA" "$desde" "$PARCIAL" 2>>"$LOG"); then
         atrasadas=${saida%% *}
         if [ "$atrasadas" -gt 0 ] 2>/dev/null; then
-            printf 'a1\t%s\t%s\n' "$(date +%s)" "$atrasadas" >> "$FILA"
-            cat "$PARCIAL" >> "$FILA"
-            echo "${saida##* }" > "$ESTADO"
-            registrar "$atrasadas faixa(s) tocaram com o daemon fora do ar;" \
-                      "horas reconstruidas"
+            maior_ini=${saida##* }
+            # A ÚLTIMA dessas linhas pode ser a faixa que está tocando agora.
+            #
+            # Isso custou um relato: o daemon subia com música tocando, via a
+            # linha daquela faixa no banco, chamava aquilo de "tocou sem
+            # ninguém olhando", dava crédito integral e a mandava ao Last.fm
+            # na hora. A pessoa via a mesma faixa como "scrobbling now" e como
+            # scrobble ao mesmo tempo — porque ela estava mesmo tocando.
+            #
+            # Uma faixa que está tocando NESTE momento não é passado. Ela fica
+            # de fora do lote e vira a faixa em curso, contada do zero como
+            # qualquer outra: perde-se o pedaço que já tinha tocado, e é
+            # melhor perder isso do que inventar uma escuta inteira.
+            #
+            # A pergunta não é "sai som?" e sim "há ARQUIVO LOCAL aberto?".
+            # Som saindo pode ser o Tidal, e aí as linhas locais são passado
+            # de verdade — descartar a última seria perder um scrobble bom.
+            # Arquivo local aberto é a faixa desta última linha, tocando.
+            tocando_agora_ini=0
+            _pcm_ini=""; _loc_ini=""
+            { read -r _pcm_ini; read -r _loc_ini; } <<FIM_INI
+$("$COLETOR" estado 2>/dev/null)
+FIM_INI
+            case "$_pcm_ini" in
+            pcm=*) [ -n "$_loc_ini" ] && tocando_agora_ini=1 ;;
+            *)
+                # r1collect antigo, sem `estado`: `tocando` responde o mesmo.
+                [ -n "$("$COLETOR" tocando 2>/dev/null)" ] && \
+                    tocando_agora_ini=1
+                ;;
+            esac
+
+            if [ "$tocando_agora_ini" = 1 ]; then
+                atrasadas=$((atrasadas - 1))
+                if [ "$atrasadas" -gt 0 ]; then
+                    printf 'a1\t%s\t%s\n' "$(date +%s)" "$atrasadas" >> "$FILA"
+                    head -n "$atrasadas" "$PARCIAL" >> "$FILA"
+                fi
+                tail -n 1 "$PARCIAL" >> "$FILA"
+                atual_rowid=$maior_ini
+                atual_ouvido=0
+                atual_gravado=0
+                # $RAPIDO e não $intervalo: o laço ainda não começou, e é com
+                # o RAPIDO que ele vai começar.
+                atual_granul=$RAPIDO
+                # Ela está tocando: é essa a condição para chegar aqui.
+                pcm_antes=1
+                ultimo_olhar=$(date +%s)
+                if [ "$atrasadas" -gt 0 ]; then
+                    registrar "$atrasadas atrasada(s), e a ultima linha e a" \
+                              "faixa tocando agora: contada do zero"
+                else
+                    registrar "nada atrasado; a unica linha nova e a faixa" \
+                              "tocando agora, contada do zero"
+                fi
+            else
+                printf 'a1\t%s\t%s\n' "$(date +%s)" "$atrasadas" >> "$FILA"
+                cat "$PARCIAL" >> "$FILA"
+                registrar "$atrasadas faixa(s) tocaram com o daemon fora do ar;" \
+                          "horas reconstruidas"
+            fi
+            echo "$maior_ini" > "$ESTADO"
             aberta_em=$(date +%s)
             atualizar_csv
         fi
     fi
     rm -f "$COPIA" "$PARCIAL"
 fi
+
+# Subiu com música tocando e sem nada atrasado? Adota a faixa mesmo assim.
+#
+# É o caso de toda partida que não é a do boot: uma atualização, ou — neste
+# aparelho, que trava sozinho — um reinício no meio de uma música. O banco não
+# ganhou linha nova (retomar não escreve nada), então o bloco do lote acima
+# não viu nada para fazer, e o resto da faixa ficava sem ninguém medindo.
+#
+# Visto aqui: a faixa 282 tocou 39 s, ficou 14 minutos pausada, voltou e tocou
+# mais 82 — e foi registrada com os 34 s que o daemon anterior tinha medido,
+# porque o novo não sabia que ela existia.
+#
+# Adotar custa nada e soma: o t1 desta execução se junta ao que já estava na
+# fila. O pedaço tocado entre o travamento e a partida é o único que se perde,
+# e perder isso é melhor do que inventar.
+if [ -z "$atual_rowid" ]; then
+    _pcm_ret=""; _loc_ret=""
+    { read -r _pcm_ret; read -r _loc_ret; } <<FIM_RET
+$("$COLETOR" estado 2>/dev/null)
+FIM_RET
+    case "$_pcm_ret" in
+    pcm=*) ;;
+    *) _loc_ret=$("$COLETOR" tocando 2>/dev/null) ;;
+    esac
+    _ult=$(cat "$ESTADO" 2>/dev/null)
+    if [ -n "$_loc_ret" ] && [ -n "$_ult" ] && [ "$_ult" -gt 0 ] 2>/dev/null
+    then
+        atual_rowid=$_ult
+        atual_ouvido=0
+        atual_gravado=0
+        atual_granul=$RAPIDO
+        pcm_antes=1
+        ultimo_olhar=$(date +%s)
+        aberta_em=$ultimo_olhar
+        parado_desde=""
+        registrar "faixa $atual_rowid ja estava tocando na partida;" \
+                  "medindo o resto dela"
+    fi
+fi
+
 # Daqui em diante nenhuma colheita é lote: o daemon está de olho, e o espaço
 # entre uma linha e a outra é tempo de verdade.
 colheita=1
@@ -892,6 +1156,129 @@ while :; do
         fi
     fi
 
+    # Quando vale a pena perguntar ao r1collect o que está tocando.
+    #
+    # Esta consulta é a única coisa do laço que cria processo, e chamá-la toda
+    # volta custa 18 ms contra os 0,25 ms de um ciclo parado — setenta vezes
+    # mais, o dia inteiro, para quase sempre ouvir "nada mudou". O mesmo teste
+    # de mtime que já protege o banco resolve: o id do Tidal mora no
+    # user.ini, e se o arquivo não foi tocado não há faixa nova para ver.
+    #
+    #   • com "tocando agora" ligado, é preciso olhar sempre — é o preço
+    #     declarado desse recurso;
+    #   • com uma faixa do Tidal em curso, é preciso olhar para saber quando
+    #     ela termina;
+    #   • com uma faixa local aberta, é preciso olhar para medir o tempo dela;
+    #   • fora disso, só quando o user.ini mudar.
+    #
+    # Ela vem ANTES da colheita, e isso não é arrumação. A colheita fecha a
+    # faixa anterior, e fechar exige o tempo dela até este instante; com a
+    # sondagem depois, o fecho usava a leitura da volta PASSADA e perdia um
+    # intervalo inteiro de escuta — até 60 s, sempre no fim da faixa, que é
+    # justamente onde a regra dos 90% decide.
+    precisa_tidal=0
+    if [ "$TIDAL" = 1 ]; then
+        [ -n "$tid_id" ] && precisa_tidal=1
+        if [ -f "$TIDAL_INI" ] && [ "$TIDAL_INI" -nt "$MARCA3" ]; then
+            touch "$MARCA3" 2>/dev/null
+            precisa_tidal=1
+        fi
+    fi
+    precisa_estado=0
+    [ "$AGORA" = 1 ] && precisa_estado=1
+    [ "$precisa_tidal" = 1 ] && precisa_estado=1
+    # Há uma faixa local em aberto — a última que entrou no histórico, que só
+    # deixa de tocar quando outra começa ou quando o áudio para. Enquanto
+    # estiver assim é preciso olhar o pcm: para medir quanto dela tocou e para
+    # saber a hora em que parou. Quando ela fecha, a sondagem se desliga
+    # sozinha — o ciclo parado volta a não criar processo nenhum.
+    [ -n "$aberta_em" ] && precisa_estado=1
+
+    pcm_aberto=0
+    local_tocando=""
+    if [ "$precisa_estado" = 1 ]; then
+        _pcm=""
+        { read -r _pcm; read -r local_tocando; } <<FIM_ESTADO
+$("$COLETOR" estado 2>/dev/null)
+FIM_ESTADO
+        case "$_pcm" in
+        pcm=1) pcm_aberto=1 ;;
+        pcm=0) ;;
+        *)
+            # Um r1collect anterior a este daemon não conhece `estado`. Sem
+            # esta reserva o "tocando agora" pararia calado depois de uma
+            # atualização em que só o daemon foi trocado — e "parou de
+            # funcionar sem dizer nada" é o pior modo de falhar que existe.
+            local_tocando=$("$COLETOR" tocando 2>/dev/null)
+            [ -n "$local_tocando" ] && pcm_aberto=1
+            ;;
+        esac
+    fi
+
+    # O tempo ouvido é MEDIDO, e não deduzido dos carimbos.
+    #
+    # Deduzir do espaço entre uma linha e a seguinte parece equivalente e não
+    # é. Ele quebra em três situações que acontecem todo dia:
+    #
+    #   • pausa. Você para no meio, atende alguém, volta e ouve o resto. Pelo
+    #     espaço entre linhas a faixa "durou" tudo isso; pelo relógio de
+    #     parede ela tocou muito menos. Um dos dois está errado, e é sempre o
+    #     mesmo.
+    #   • o daemon subindo com música já tocando. A linha daquela faixa já
+    #     está no banco, e ele não tem como saber quanto dela já passou — foi
+    #     o que mandou ao Last.fm faixas que estavam começando naquele
+    #     instante, aparecendo como scrobble e como "ouvindo agora" ao mesmo
+    #     tempo.
+    #   • a última faixa de uma sequência, que não tem seguinte para fechá-la
+    #     e acabava sendo fechada por chute.
+    #
+    # Aqui o número é o que ele viu: a cada volta, com o pcm aberto, soma o
+    # tempo desde a volta anterior. Uma pausa simplesmente não é contada,
+    # porque o pcm fecha.
+    #
+    # Junto com o total vai a incerteza dele, na mesma linha t1: o PC precisa
+    # saber com que precisão o número foi medido para não cobrar dele mais do
+    # que ele tem. Como ela é somada está logo abaixo.
+    if [ -n "$atual_rowid" ]; then
+        _ag=$(date +%s)
+        _d=$((_ag - ultimo_olhar))
+        # Um salto absurdo (relógio acertado, suspensão) não vira nada.
+        [ "$_d" -gt 0 ] && [ "$_d" -le $((LENTO * 2)) ] || _d=0
+
+        # A incerteza da medição, somada honestamente.
+        #
+        # O pcm é olhado de tantos em tantos segundos, então a hora em que ele
+        # mudou de estado só se sabe com a precisão de um intervalo. Cada
+        # troca — o áudio parou, o áudio voltou — esconde até um intervalo
+        # inteiro de música que não entrou na conta.
+        #
+        # Visto ao vivo: a sonda de um em um segundo cronometrou 6 s de pausa
+        # numa faixa; o daemon, olhando de 15 em 15, contou 15. Os 9 segundos
+        # de diferença são música que tocou e não foi somada.
+        #
+        # Por isso a incerteza acompanha as TROCAS, e não o intervalo do laço.
+        # Uma faixa ouvida direto tem duas (começou, acabou) e quase nenhuma
+        # incerteza; uma faixa pausada três vezes tem oito, e é justo que o PC
+        # cobre dela com a mesma folga com que ela foi medida. Um pulo não
+        # ganha nada com isso: pular também dá uma troca só.
+        if [ "$pcm_aberto" != "$pcm_antes" ]; then
+            atual_granul=$((atual_granul + _d))
+        fi
+        pcm_antes=$pcm_aberto
+
+        if [ "$pcm_aberto" = 1 ]; then
+            if [ "$_d" -gt 0 ]; then
+                atual_ouvido=$((atual_ouvido + _d))
+            fi
+            # Passou o suficiente desde o último ponto de controle: grava,
+            # para um travamento não levar a contagem junto.
+            if [ $((atual_ouvido - atual_gravado)) -ge "$T1_PASSO" ]; then
+                anotar_medida
+            fi
+        fi
+        ultimo_olhar=$_ag
+    fi
+
     if [ "$DB" -nt "$MARCA" ]; then
         mexeu=1
         # A marca é atualizada ANTES da cópia. Se o player gravar durante a
@@ -913,25 +1300,33 @@ while :; do
                     # Fila e estado avançam juntos: se a energia acabar entre
                     # as duas linhas, o pior que acontece é repetir, e o PC
                     # descarta rowid repetido.
+                    # A faixa que estava aberta acabou: a linha nova é a
+                    # prova de que outra começou. Fecha com o que foi medido.
+                    fechar_faixa_atual
                     cat "$PARCIAL" >> "$FILA"
                     echo "$maior" > "$ESTADO"
                     registrar "$novas nova(s), rowid ate $maior"
                     # A última linha desta colheita é a faixa que ACABOU DE
-                    # COMEÇAR. Ela fica em aberto até outra começar ou até o
-                    # áudio parar; é isso que liga a sondagem do pcm.
+                    # COMEÇAR. A contagem dela começa agora, do zero.
                     aberta_em=$(date +%s)
+                    atual_rowid=$maior
+                    atual_ouvido=0
+                    atual_gravado=0
+                    # A faixa já começou quando esta linha apareceu, e o
+                    # daemon só olha de tantos em tantos segundos: o começo
+                    # dela está em algum ponto do último intervalo, e esse
+                    # pedaço não entrou na conta. A incerteza começa aí.
+                    atual_granul=$intervalo
+                    # Uma linha nova é uma faixa começando: está tocando.
+                    pcm_antes=1
+                    ultimo_olhar=$aberta_em
+                    parado_desde=""
                     atualizar_csv
                     # A anterior, essa sim, está fechada: a linha nova diz a
                     # hora em que ela parou. Se houver rede, não há razão para
                     # esperar o relógio dos doze minutos — só a espera curta
                     # que junta uma sequência de pulos num envio só.
-                    if [ "$IMEDIATO" = 1 ] && [ "$proximo_envio" = "$ENVIO" ]; then
-                        falta=$((proximo_envio - ESPERA_IMEDIATO))
-                        [ "$falta" -lt 0 ] && falta=0
-                        if [ "$desde_envio" -lt "$falta" ]; then
-                            desde_envio=$falta
-                        fi
-                    fi
+                    adiantar_envio
                 elif [ -n "$maior" ]; then
                     echo "$maior" > "$ESTADO"
                 fi
@@ -959,6 +1354,17 @@ while :; do
     # início da faixa seguinte herdava o mesmo atraso.
     [ -n "$tid_id" ] && mexeu=1
 
+    # Uma faixa local tocando também conta como atividade, pelo mesmo motivo e
+    # mais um. O motivo antigo: sem isso o laço cai para 60 s e a troca de
+    # faixa demora até um minuto para ser notada. O motivo novo: cada vez que
+    # o áudio começa ou para entre duas olhadas, o pedaço tocado ali some da
+    # conta — a 60 s some até um minuto, e some no fim da faixa, que é onde se
+    # decide se ouviu os 90%. A 15 s o erro cabe no bolso.
+    #
+    # Isto não acorda o laço à toa: só vale enquanto há som saindo. Pausado ou
+    # parado, ele volta a dormir.
+    [ -n "$aberta_em" ] && [ "$pcm_aberto" = 1 ] && mexeu=1
+
     if [ "$mexeu" = 1 ]; then
         ultimo=$(date +%s)
         intervalo=$RAPIDO
@@ -979,80 +1385,75 @@ while :; do
         fi
     fi
 
-    # O "tocando agora" tem de sair enquanto a faixa toca, então ele não
-    # espera o relógio de doze minutos — olha a cada volta. Custa 10 ms, e
-    # só quando está ligado E o WiFi já está no ar.
-    # Uma varredura de /proc por volta, compartilhada pelos dois
-    # acompanhamentos. Antes eram duas, e a segunda respondia a mesma coisa.
-    # Quando vale a pena perguntar ao r1collect o que está tocando.
+    # Pausar não é parar, e o aparelho diz a diferença.
     #
-    # Esta consulta é a única coisa do laço que cria processo, e chamá-la toda
-    # volta custa 18 ms contra os 0,25 ms de um ciclo parado — setenta vezes
-    # mais, o dia inteiro, para quase sempre ouvir "nada mudou". O mesmo teste
-    # de mtime que já protege o banco resolve: o id do Tidal mora no
-    # user.ini, e se o arquivo não foi tocado não há faixa nova para ver.
+    # Fechar a faixa no primeiro segundo de silêncio foi o que produziu o
+    # relato de "faixas que eu ouvi não aparecem": pausar para atender alguém
+    # fecha o pcm igualzinho a desligar o aparelho, e a faixa ia embora com
+    # meia escuta — abaixo do mínimo, ou seja, descartada. Quem pausa no meio
+    # de uma música e volta ouviu a música.
     #
-    #   • com "tocando agora" ligado, é preciso olhar sempre — é o preço
-    #     declarado desse recurso;
-    #   • com uma faixa do Tidal em curso, é preciso olhar para saber quando
-    #     ela termina;
-    #   • fora disso, só quando o user.ini mudar.
-    precisa_tidal=0
-    if [ "$TIDAL" = 1 ]; then
-        [ -n "$tid_id" ] && precisa_tidal=1
-        if [ -f "$TIDAL_INI" ] && [ "$TIDAL_INI" -nt "$MARCA3" ]; then
-            touch "$MARCA3" 2>/dev/null
-            precisa_tidal=1
+    # Medido no aparelho, com uma faixa tocando e a pausa apertada de verdade:
+    #
+    #     ...  50s  pcm=1  rowid=261  arq=.../After Dark.flac   tocando
+    #     ...  50s  pcm=0  rowid=261  arq=.../After Dark.flac   PAUSADO
+    #     ...  29s  pcm=1  rowid=261  arq=.../After Dark.flac   voltou
+    #
+    # O pcm fecha, o ARQUIVO não. E o rowid não mudou: retomar não escreve
+    # linha nenhuma no histórico, então não há nada além disto que avise que a
+    # faixa continua. Parado de verdade — fim da lista, aparelho ocioso — o
+    # arquivo também fecha, e aí `arq` vem vazio.
+    #
+    # Daí a regra, que é observação e não temporizador:
+    #
+    #     pcm=1                  → tocando, conta o tempo
+    #     pcm=0 e arquivo aberto → pausado, não conta e não fecha
+    #     pcm=0 e nada aberto    → parou, fecha a faixa
+    #
+    # O teto de pausa existe só para a faixa não ficar presa para sempre se
+    # alguém pausar e largar o aparelho ligado: passado ele, o que foi medido
+    # vai embora e a faixa segue para o Last.fm se tiver dado o mínimo.
+    # O `precisa_estado` no teste não é zelo: sem ele isto decide no escuro.
+    #
+    # A sondagem acontece no TOPO do laço e só quando há faixa aberta. Na
+    # volta em que a colheita abre uma faixa, portanto, ninguém olhou o pcm
+    # ainda — as variáveis valem o zero com que começam a volta. Ler isso como
+    # "não há som e nenhum arquivo aberto" fechava a faixa no mesmo instante
+    # em que ela abria, com zero segundo ouvido. Nada é decidido sobre um
+    # estado que não foi medido; a volta seguinte já mede.
+    if [ -n "$aberta_em" ] && [ "$precisa_estado" = 1 ]; then
+        _ag=$(date +%s)
+        if [ "$pcm_aberto" = 1 ]; then
+            if [ -n "$parado_desde" ]; then
+                registrar "audio voltou apos $((_ag - parado_desde))s de pausa;" \
+                          "faixa $atual_rowid continua, $atual_ouvido s ate aqui"
+                parado_desde=""
+            fi
+        else
+            if [ -z "$parado_desde" ]; then
+                parado_desde=$_ag
+                # O f1 continua saindo na hora exata em que o som parou: ele é
+                # o teto que as versões antigas do PC usam para deduzir o fim,
+                # e serve de diagnóstico. Quem lê o t1 nem olha para ele.
+                printf 'f1\t%s\n' "$_ag" >> "$FILA"
+            fi
+            if [ -z "$local_tocando" ]; then
+                fechar_faixa_atual
+                registrar "audio parou e o arquivo fechou; faixa encerrada"
+                aberta_em=""
+                parado_desde=""
+                atualizar_csv
+                adiantar_envio
+            elif [ $((_ag - parado_desde)) -ge "$PAUSA_MAX" ]; then
+                fechar_faixa_atual
+                registrar "pausa passou de ${PAUSA_MAX}s; faixa encerrada com" \
+                          "o que foi medido"
+                aberta_em=""
+                parado_desde=""
+                atualizar_csv
+                adiantar_envio
+            fi
         fi
-    fi
-    precisa_estado=0
-    [ "$AGORA" = 1 ] && precisa_estado=1
-    [ "$precisa_tidal" = 1 ] && precisa_estado=1
-    # Há uma faixa local em aberto — a última que entrou no histórico, que só
-    # deixa de tocar quando outra começa ou quando o áudio para. Enquanto
-    # estiver assim é preciso olhar o pcm para saber a hora em que parou; sem
-    # essa hora, a última faixa de cada sessão fica sem fechamento e nunca
-    # sobe. Assim que o áudio para, o f1 é escrito e a sondagem se desliga
-    # sozinha — o ciclo parado volta a não criar processo nenhum.
-    [ -n "$aberta_em" ] && precisa_estado=1
-
-    pcm_aberto=0
-    local_tocando=""
-    if [ "$precisa_estado" = 1 ]; then
-        _pcm=""
-        { read -r _pcm; read -r local_tocando; } <<FIM_ESTADO
-$("$COLETOR" estado 2>/dev/null)
-FIM_ESTADO
-        case "$_pcm" in
-        pcm=1) pcm_aberto=1 ;;
-        pcm=0) ;;
-        *)
-            # Um r1collect anterior a este daemon não conhece `estado`. Sem
-            # esta reserva o "tocando agora" pararia calado depois de uma
-            # atualização em que só o daemon foi trocado — e "parou de
-            # funcionar sem dizer nada" é o pior modo de falhar que existe.
-            local_tocando=$("$COLETOR" tocando 2>/dev/null)
-            [ -n "$local_tocando" ] && pcm_aberto=1
-            ;;
-        esac
-    fi
-
-    # A faixa local em aberto e a hora em que ela parou.
-    #
-    # A linha do histórico entra quando a faixa COMEÇA — observado ao vivo no
-    # aparelho: o player trocou de faixa e a linha apareceu no mesmo segundo,
-    # com o áudio ainda tocando por mais quarenta e cinco. Então cada linha
-    # nova fecha a anterior, e a última de uma sequência só fecha quando o
-    # áudio para. É essa hora que o f1 carrega.
-    #
-    # Sem ele a última faixa de cada sessão ficava sem fim conhecido, e o PC
-    # não tinha como saber se ela tocou inteira ou se o aparelho foi desligado
-    # no primeiro refrão.
-    if [ -n "$aberta_em" ] && [ "$pcm_aberto" = 0 ]; then
-        printf 'f1\t%s\n' "$(date +%s)" >> "$FILA"
-        registrar "audio parou; faixa aberta desde $aberta_em fechada"
-        aberta_em=""
-        atualizar_csv
     fi
 
     olhar_tocando

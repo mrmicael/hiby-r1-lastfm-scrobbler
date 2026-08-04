@@ -96,6 +96,38 @@ check("com o motivo explicado",
 
 print()
 print("=" * 74)
+print("2b. a faixa que esta tocando nao e acusada de 'ouviu pouco'")
+print("=" * 74)
+# A medicao chega em pedacos, e so o ultimo leva "fim". Sem esse campo, uma
+# faixa no comeco tem medida parcial — e dizer "faltou tempo" para a musica
+# que esta tocando no aparelho neste instante faz a pessoa achar que ela vai
+# ser descartada, quando na verdade ela sobe sozinha ao terminar.
+AGORA_T = T0 + 900
+texto = "\n".join([
+    f"b1\t{AGORA_T - 60}",
+    p1(10, AGORA_T - 30, "D", "Tocando agora", 200),
+    f"t1\t10\t28\t15",                      # sem "fim": ainda tocando
+])
+rec = F.reconstruir(F.ler(texto)[0], agora=AGORA_T)
+fora = [m for _p, m in rec.descartadas]
+check("nao entra ainda", not rec.execucoes, str([p.track
+                                                 for p in rec.execucoes]))
+check("e o motivo diz que ela esta tocando",
+      any("still playing" in m for m in fora), str(fora))
+
+# A MESMA medida com "fim" e outra coisa: acabou aos 28 de 200, foi pulo.
+texto = "\n".join([
+    f"b1\t{AGORA_T - 60}",
+    p1(11, AGORA_T - 30, "D", "Largada", 200),
+    f"t1\t11\t28\t15\tfim",
+])
+rec = F.reconstruir(F.ler(texto)[0], agora=AGORA_T)
+fora = [m for _p, m in rec.descartadas]
+check("com 'fim', volta a ser pulo",
+      any("28s of 200s" in m for m in fora), str(fora))
+
+print()
+print("=" * 74)
 print("3. a primeira faixa da sessao ja nao depende de vizinho anterior")
 print("=" * 74)
 # Este era o defeito relatado: a primeira da sessao nao tinha anterior, ficava
@@ -146,14 +178,16 @@ print()
 print("=" * 74)
 print("5. linhas repetidas (queda de energia) nao viram scrobble dobrado")
 print("=" * 74)
+# O f1 fecha a ultima, e so ele fecha: o i1 marca a hora do ultimo evento,
+# que numa faixa em curso e a hora em que ela comecou.
 texto = "\n".join([
     f"b1\t{T0}",
-    p1(1, T0 + 260, "A", "Uma", 257),
-    p1(2, T0 + 500, "B", "Duas", 240),
-    p1(1, T0 + 260, "A", "Uma", 257),          # rowid 1 repetido
-    p1(2, T0 + 500, "B", "Duas", 240),
-    p1(3, T0 + 745, "C", "Tres", 240),
-    f"i1\t{T0 + 745}",
+    p1(1, T0 + 3,   "A", "Uma", 257),
+    p1(2, T0 + 260, "B", "Duas", 240),
+    p1(1, T0 + 3,   "A", "Uma", 257),          # rowid 1 repetido
+    p1(2, T0 + 260, "B", "Duas", 240),
+    p1(3, T0 + 500, "C", "Tres", 240),
+    f"f1\t{T0 + 740}",
 ])
 rec = F.reconstruir(F.ler(texto)[0], agora=T0 + 900)
 titulos = [p.track for p in rec.execucoes]

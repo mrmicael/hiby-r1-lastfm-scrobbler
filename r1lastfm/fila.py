@@ -5,24 +5,39 @@ só diz *que* ela tocou, e em que ordem. Quem põe hora nisso é o daemon, que
 anota o instante em que viu cada linha aparecer. Este módulo faz o resto da
 conta.
 
-Quando isso acontece foi medido no aparelho, e a resposta é boa: **o player
-grava a linha quando a faixa TERMINA**. Numa faixa de 3min14 a gravação
-apareceu 194 s depois do play, que é a duração exata.
+Quando isso acontece foi observado ao vivo no aparelho, e a resposta e o
+contrario do que se supunha por muito tempo: **o player grava a linha quando a
+faixa COMECA**. As 08:49:41 a faixa mudou e a ultima linha do HISTORY_TABLE
+virou a faixa nova no mesmo segundo, com o pcm ainda aberto e a musica tocando
+por mais quarenta e cinco.
 
-Isso simplifica tudo. A existência da linha já diz que a faixa chegou ao fim,
-então a hora de início é a da gravação menos a duração, e não há a incerteza
-da "última faixa da sessão" — toda linha representa uma faixa concluída.
+Entao a hora de cada linha JA E o comeco da faixa.
 
-O tempo ouvido ainda é limitado pelo espaço desde o evento anterior: se você
-pulou a faixa no meio, a linha aparece cedo demais para ela ter tocado
-inteira, e a conta pega isso.
+Quanto ela tocou, porem, nao sai de carimbo nenhum: vem MEDIDO, no marcador
+t1, que o daemon escreve contando os segundos em que o pcm ficou aberto.
+Deduzir do espaco entre uma linha e a seguinte parece equivalente e nao e —
+esse espaco e tempo de relogio, nao tempo de musica. Ele quebra em tres
+situacoes que acontecem todo dia, e as tres viraram relato de usuario:
 
-Um reinício quebra a sequência, e é tratado: o intervalo entre a última faixa
-antes de desligar e a primeira depois de ligar não é tempo de escuta. Os
-marcadores de início do daemon cortam a conta nesses pontos.
+  * pausa. Pelo espaco entre linhas a faixa "durou" a pausa inteira; pelo
+    audio ela tocou muito menos. Antes disso, pausar no meio fazia uma faixa
+    que a pessoa terminou de ouvir ser descartada como meia escuta.
+  * o daemon subindo com musica ja tocando. O espaco ate aquela linha e tempo
+    em que ele nem existia, e a faixa subia como ouvida no instante em que
+    comecava — aparecendo no perfil como scrobble e como "ouvindo agora" ao
+    mesmo tempo.
+  * a ultima faixa de uma sessao, sem seguinte que a feche.
 
-O modo INICIO continua implementado, para o caso de outra versão de firmware
-se comportar de outro jeito.
+A deducao pelo espaco continua no modulo e continua correta como reserva: e o
+que sobra para uma fila gravada por um daemon anterior ao t1. Quando existem
+os dois, a medida manda — o r1send.c faz a mesma escolha no mesmo ponto da
+conta, e os dois precisam concordar linha a linha.
+
+Um reinicio quebra a sequencia, e e tratado: o intervalo entre a ultima faixa
+antes de desligar e a primeira depois de ligar nao e tempo de escuta.
+
+O modo FIM continua no modulo, herdado da medicao antiga que estava olhando
+para a linha da faixa ANTERIOR, mas nao e mais o padrao.
 """
 
 from __future__ import annotations
@@ -50,11 +65,18 @@ INICIO = "inicio"   # a linha aparece quando a faixa começa
 FIM = "fim"         # a linha aparece quando a faixa termina (não é o caso)
 PADRAO = INICIO
 
-# O que fazer com a última faixa de uma sessão, cujo tempo de escuta ninguém
-# registrou.
+# O que fazer com a última faixa de uma sessão quando nada diz onde ela
+# terminou. Hoje isso é raro: o daemon escreve o marcador f1 ao ver o áudio
+# parar, e com ele a última faixa é fechada como qualquer outra.
 ULTIMA_ASSUME_INTEIRA = "inteira"    # conta como ouvida por completo
 ULTIMA_DESCARTA = "descarta"         # não envia
 ULTIMA_USA_LIMITE = "limite"         # usa o pouco que dá para provar
+# O padrão é usar só o que dá para provar, que é o que o r1send faz dentro do
+# aparelho. Enquanto o padrão foi ASSUME_INTEIRA, as duas implementações
+# discordavam justamente onde mais importa: um fim desconhecido virava crédito
+# integral de um lado e descarte do outro, e quem enviasse pelo cabo recebia
+# no perfil faixas que o envio por WiFi teria recusado.
+ULTIMA_PADRAO = ULTIMA_USA_LIMITE
 
 # O Last.fm recusa horas com mais de 14 dias. Deixo uma folga de meio dia.
 LIMITE_ANTIGO = 13 * 86400
@@ -108,6 +130,17 @@ class Registro:
     # faixa acontecer. Zero quer dizer "não sei", que é o caso de toda linha
     # gravada antes deste campo existir.
     inicio_dito: int = 0
+    # Quantos segundos desta faixa o daemon MEDIU tocando, e com que régua.
+    #
+    # Vem do marcador t1, que aparece na fila depois do p1 correspondente. -1
+    # quer dizer "não há medida": fila de um daemon anterior a isto, ou faixa
+    # que ainda não fechou. Nesse caso o tempo volta a ser deduzido dos
+    # carimbos, que é o que existia antes e erra quando alguém pausa.
+    medido: int = -1
+    regua: int = 0
+    # O daemon já disse que esta faixa acabou. Enquanto for falso, a medida
+    # que existe é parcial: a faixa pode estar tocando neste instante.
+    fechada: bool = False
 
 
 @dataclass
@@ -132,6 +165,22 @@ def ler(texto: str) -> tuple[list[Registro], int]:
         try:
             if tipo in ("b1", "f1", "i1", "m1", "c1"):
                 regs.append(Registro(tipo=tipo, hora=int(campos[1])))
+            elif tipo == "t1":
+                # t1 rowid segundos-ouvidos régua [fim]
+                #
+                # O daemon dizendo quanto de uma faixa tocou de verdade. Não
+                # tem hora própria: o que ele marca é uma duração, não um
+                # instante. Sai em parcelas enquanto a faixa toca — um
+                # travamento não pode levar a medição junto — e a última leva
+                # "fim", que é o que separa "acabou assim" de "está nisto".
+                regs.append(Registro(
+                    tipo="t1",
+                    hora=0,
+                    rowid=int(campos[1]),
+                    medido=max(0, int(campos[2])),
+                    regua=max(0, int(campos[3])) if len(campos) > 3 else 0,
+                    fechada=len(campos) > 4 and campos[4].strip() == "fim",
+                ))
             elif tipo == "p1":
                 # p1 rowid hora artista titulo album album_artista dur ano path
                 regs.append(Registro(
@@ -157,7 +206,7 @@ def ler(texto: str) -> tuple[list[Registro], int]:
 
 def reconstruir(regs: Sequence[Registro], *,
                 modo: str = PADRAO,
-                ultima: str = ULTIMA_ASSUME_INTEIRA,
+                ultima: str = ULTIMA_PADRAO,
                 ja_enviados: Iterable[int] = (),
                 agora: int | None = None) -> Reconstrucao:
     """Monta as execuções a partir dos registros do aparelho."""
@@ -177,6 +226,25 @@ def reconstruir(regs: Sequence[Registro], *,
                 continue
             vistos.add(reg.rowid)
         limpos.append(reg)
+
+    # As medidas entram na faixa a que pertencem, e o t1 sai de cena.
+    #
+    # Somam-se porque uma faixa pode fechar mais de uma vez: uma pausa que
+    # passa do limite fecha a faixa com o que já tinha, e o resto da escuta
+    # chega depois, num segundo t1 com o mesmo rowid. Somar é o que faz "ouvi
+    # metade, almocei, ouvi o resto" contar como a música inteira.
+    medidas: dict[int, tuple[int, int, bool]] = {}
+    for reg in limpos:
+        if reg.tipo != "t1":
+            continue
+        antes, regua, fim = medidas.get(reg.rowid, (0, 0, False))
+        medidas[reg.rowid] = (antes + reg.medido, max(regua, reg.regua),
+                              fim or reg.fechada)
+    if medidas:
+        for reg in limpos:
+            if reg.tipo == "p1" and reg.rowid in medidas:
+                reg.medido, reg.regua, reg.fechada = medidas[reg.rowid]
+    limpos = [r for r in limpos if r.tipo != "t1"]
 
     # Corta em sessões: um reinício não é uma pausa entre músicas.
     #
@@ -300,6 +368,21 @@ def _uma_sessao(sessao, out, modo, ultima, enviados, agora, suspeito_ate,
                         span = 0
                         certeza = False
 
+        # Havendo medida, ela manda — e sem concorrência.
+        #
+        # Tudo acima responde "quanto tempo passou entre uma linha e outra", e
+        # a pergunta é "quanto a faixa tocou". Os dois só coincidem quando
+        # ninguém pausa, ninguém liga o aparelho no meio de uma música e nada
+        # fica em aberto no fim da lista. Quando divergem, quem errou foi a
+        # dedução: ela contou silêncio como música.
+        #
+        # O r1send.c faz exatamente isto, no mesmo lugar da conta. Os dois
+        # precisam concordar linha a linha, senão o CSV do cartão e o que sobe
+        # para o Last.fm contam histórias diferentes da mesma noite.
+        if reg.medido >= 0:
+            span = reg.medido
+            certeza = True
+
         # Ninguém ouve mais do que a faixa dura.
         if reg.duracao:
             span = min(span, reg.duracao)
@@ -314,6 +397,8 @@ def _uma_sessao(sessao, out, modo, ultima, enviados, agora, suspeito_ate,
             duration=reg.duracao,
             listened=span,
             source=reg.caminho,
+            rowid=reg.rowid,
+            regua=reg.regua if reg.medido >= 0 else 0,
         )
 
         if not certeza:
@@ -322,13 +407,22 @@ def _uma_sessao(sessao, out, modo, ultima, enviados, agora, suspeito_ate,
                     (play, t("fila.last_of_session")))
                 continue
             if ultima == ULTIMA_ASSUME_INTEIRA:
-                # Sem uma faixa seguinte nada prova o tempo. Assumir que ela
-                # tocou inteira erra para o lado de mandar demais; descartar
-                # erraria para o lado de perder a última faixa de toda
-                # sessão, o que é bem pior no dia a dia.
+                # Assumir que a última faixa tocou inteira fazia sentido
+                # enquanto o daemon não sabia dizer quando o áudio parava:
+                # descartar perderia a última faixa de toda sessão, e isso
+                # doía mais no dia a dia do que mandar uma a mais.
+                #
+                # Agora o daemon escreve o marcador f1 quando vê o pcm fechar,
+                # e a última faixa é fechada como qualquer outra. Quando nem
+                # isso existe, o fim é genuinamente desconhecido — e dar
+                # crédito integral a um fim desconhecido é exatamente a
+                # reclamação que o resto deste módulo passou o dia
+                # consertando. Por isso o padrão deixou de ser este.
                 play.listened = play.duration if play.duration else -1
             # Em ULTIMA_USA_LIMITE o span calculado fica como está: é o que
-            # os marcadores conseguem provar, e nada além disso.
+            # os marcadores conseguem provar, e nada além disso. É também o
+            # que o r1send faz no aparelho, e as duas implementações têm de
+            # dizer a mesma coisa sobre a mesma fila.
 
         if reg.hora <= suspeito_ate:
             out.descartadas.append(
@@ -347,7 +441,19 @@ def _uma_sessao(sessao, out, modo, ultima, enviados, agora, suspeito_ate,
         if pode:
             out.execucoes.append(play)
         else:
-            out.descartadas.append((play, motivo))
+            # A faixa que ainda está tocando não foi "pouco ouvida": ela não
+            # acabou. Dizer que faltou tempo para a música que está no
+            # aparelho neste momento faz a pessoa achar que o programa vai
+            # descartá-la — e ela vai subir sozinha assim que terminar.
+            #
+            # Só vale enquanto ela caberia no relógio: passada a duração, a
+            # faixa acabou de algum jeito (o aparelho pode ter travado) e o
+            # motivo verdadeiro volta a ser o que scrobblable() disse.
+            tocando = (reg.medido >= 0 and not reg.fechada
+                       and play.duration > 0
+                       and agora - play.timestamp <= play.duration)
+            out.descartadas.append(
+                (play, t("fila.playing") if tocando else motivo))
 
 
 def rowids(regs: Sequence[Registro]) -> list[int]:

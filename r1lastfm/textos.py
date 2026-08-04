@@ -87,8 +87,11 @@ TEXTOS: dict[str, dict[str, str]] = {
               "says what played, and in what order. So a tiny program sits on "
               "the device writing down the time each track shows up in the "
               "history, and the gap between one and the next is how long you "
-              "listened. That is what decides what Last.fm accepts: more than "
-              "half the track, or 4 minutes.\n\n"
+              "listened. That is what decides what counts: the track has to "
+              "have played almost to the end — 90% of it, or 4 minutes, "
+              "whichever comes first. Last.fm settles for half; this is "
+              "stricter, so a track you walked away from does not go up as if "
+              "you had listened to it.\n\n"
               "From there, what was recorded reaches Last.fm two ways, and you "
               "can use both at once:\n"
               "    • by itself, whenever the R1's Wi-Fi is already on (card 4);\n"
@@ -100,8 +103,11 @@ TEXTOS: dict[str, dict[str, str]] = {
               "diz o que tocou e em que ordem. Então um programinha fica no "
               "aparelho anotando a hora em que cada faixa aparece no histórico, "
               "e o intervalo entre uma e outra dá o tempo que você ouviu de "
-              "cada uma. É esse tempo que decide o que o Last.fm aceita: mais "
-              "da metade da faixa, ou 4 minutos.\n\n"
+              "cada uma. É esse tempo que decide o que conta: a faixa tem de "
+              "ter tocado quase até o fim — 90% dela, ou 4 minutos, o que "
+              "vier antes. O Last.fm se contenta com metade; aqui a régua é "
+              "mais alta, para que uma faixa que você largou no meio não suba "
+              "como se tivesse sido ouvida.\n\n"
               "Depois disso o que foi anotado chega ao Last.fm de dois jeitos, "
               "e você pode usar os dois ao mesmo tempo:\n"
               "    • sozinho, quando o WiFi do R1 já estiver ligado (cartão 4);\n"
@@ -371,6 +377,87 @@ TEXTOS: dict[str, dict[str, str]] = {
     # inutilizar um player, então o texto não economiza: diz o que vai
     # acontecer, o que pode dar errado e qual é o caminho de volta, ANTES de
     # abrir qualquer seletor de arquivo.
+    # O curl recém-compilado é experimentado no aparelho antes de substituir o
+    # que estava lá. Esta é a mensagem de quando ele não passa.
+    # Descartar faixas da fila. Pedido de quem escuta todo dia e envia pelo
+    # cabo: sem isto, a única saída para uma faixa indesejada era apagar a
+    # fila inteira.
+    "btn.queue.discard": {
+        "en": "Discard selected",
+        "pt": "Descartar as marcadas",
+    },
+    "fila.nada_marcado.title": {
+        "en": "Nothing is selected",
+        "pt": "Nada está marcado",
+    },
+    "fila.nada_marcado.body": {
+        "en": "Click the rows you want to discard first. Hold Ctrl to pick "
+              "several, or Shift to pick a range.",
+        "pt": "Clique antes nas linhas que quer descartar. Segure Ctrl para "
+              "escolher várias, ou Shift para escolher um intervalo.",
+    },
+    "fila.descartar.title": {
+        "en": "Discard {n} track(s) from the queue?",
+        "pt": "Descartar {n} faixa(s) da fila?",
+    },
+    "fila.descartar.body": {
+        "en": "These will never be sent to Last.fm:{faixas}\n\n"
+              "They are marked as already dealt with on the device — the same "
+              "thing that stops a sent track from going up twice. Nothing is "
+              "removed from the player's own history, and no scrobble already "
+              "on your profile is touched.\n\n"
+              "This cannot be undone from here.",
+        "pt": "Estas nunca serão enviadas ao Last.fm:{faixas}\n\n"
+              "Elas ficam anotadas no aparelho como já resolvidas — o mesmo "
+              "que impede uma faixa enviada de subir duas vezes. Nada é "
+              "apagado do histórico do próprio player, e nenhum scrobble que "
+              "já está no seu perfil é tocado.\n\n"
+              "Isto não tem volta por aqui.",
+    },
+    "fila.descartar.ok": {
+        "en": "Discard them",
+        "pt": "Descartar",
+    },
+    "fila.descartando": {
+        "en": "Discarding…",
+        "pt": "Descartando…",
+    },
+    "fila.descartadas": {
+        "en": "{n} track(s) discarded — they will not be sent.",
+        "pt": "{n} faixa(s) descartada(s) — não serão enviadas.",
+    },
+    "ap.curl.ok": {
+        "en": "curl runs on the device — installed.",
+        "pt": "o curl roda no aparelho — instalado.",
+    },
+    "ap.err.curl.quebrado.title": {
+        "en": "The curl that was built does not run on the R1",
+        "pt": "O curl que foi compilado não roda no R1",
+    },
+    "ap.err.curl.quebrado.body": {
+        "en": "It was copied to the device, run there, and it died. Nothing "
+              "was replaced — whatever curl you had before is still in "
+              "place.\n\nThe device answered:\n    {saida}\n\n"
+              "A 139 means it crashed (signal 11). If you edited the build "
+              "recipe, note that --disable-threaded-resolver produces exactly "
+              "this: it looks like the right fix for the DNS error, and the "
+              "resulting binary segfaults on every request. The DNS problem "
+              "is already worked around elsewhere — the device resolves the "
+              "name itself and hands curl the address.\n\n"
+              "Build it again, or keep sending over the cable, which does not "
+              "use curl at all.",
+        "pt": "Ele foi copiado para o aparelho, executado lá, e morreu. Nada "
+              "foi substituído — o curl que você tinha antes continua no "
+              "lugar.\n\nO aparelho respondeu:\n    {saida}\n\n"
+              "Um 139 quer dizer que ele quebrou (sinal 11). Se você mexeu na "
+              "receita de compilação, saiba que o --disable-threaded-resolver "
+              "produz exatamente isso: parece a correção certa para o erro de "
+              "DNS, e o binário resultante segfaulta em toda requisição. O "
+              "problema de DNS já é contornado noutro lugar — o aparelho "
+              "resolve o nome sozinho e entrega o endereço ao curl.\n\n"
+              "Compile de novo, ou continue enviando pelo cabo, que não usa "
+              "curl nenhum.",
+    },
     "btn.firmware": {
         "en": "Fix auto-start…",
         "pt": "Resolver o auto-start…",
@@ -539,11 +626,21 @@ TEXTOS: dict[str, dict[str, str]] = {
         "en": "Does NOT start on its own at boot.",
         "pt": "NÃO inicia sozinho no boot.",
     },
+    # O motivo vem do daemon, com as palavras dele. Esta mensagem afirmava
+    # "este busybox não tem read -t" — e um dos dois motivos que o daemon
+    # registra é justamente "'read -t' existe mas não esperou". A tela
+    # descartava a resposta e punha um palpite no lugar.
     "dev.no_read_t": {
-        "en": "This device's busybox has no “read -t”, so the collector falls "
-              "back to sleep (costs a little more).",
-        "pt": "O busybox deste aparelho não tem “read -t”; o coletor está "
-              "usando sleep (gasta um pouquinho mais).",
+        "en": "The collector is using sleep instead of waiting on a pipe "
+              "(costs a little more CPU).",
+        "pt": "O coletor está usando sleep em vez de esperar num fifo (gasta "
+              "um pouquinho mais de processador).",
+    },
+    "dev.no_read_t.why": {
+        "en": "The collector is using sleep instead of waiting on a pipe "
+              "(costs a little more CPU). The device said: {motivo}",
+        "pt": "O coletor está usando sleep em vez de esperar num fifo (gasta "
+              "um pouquinho mais de processador). O aparelho disse: {motivo}",
     },
     "dev.counts": {
         "en": "{execucoes} play(s) recorded, {pendentes} still to send.",
@@ -573,6 +670,15 @@ TEXTOS: dict[str, dict[str, str]] = {
     "dev.card": {
         "en": "  Log and spreadsheet on the card: {caminho}",
         "pt": "  Registro e planilha no cartão: {caminho}",
+    },
+    # Quando há cartão e a planilha ainda não existe. Ela só aparece depois
+    # que o coletor anota a primeira faixa, e antes disto a tela dizia
+    # "nenhum cartão gravável encontrado" para quem tinha o cartão ali.
+    "dev.card.soon": {
+        "en": "  Spreadsheet will be written to {caminho} after the first "
+              "track is recorded.",
+        "pt": "  A planilha será gravada em {caminho} depois que a primeira "
+              "faixa for anotada.",
     },
     "dev.card.none": {
         "en": "  No writable memory card found, so no spreadsheet is written "
@@ -769,15 +875,19 @@ TEXTOS: dict[str, dict[str, str]] = {
         "en": "the cacert.pem",
         "pt": "o cacert.pem",
     },
+    # O que se mede é a rota padrão no /proc/net/route, e é isso que estas
+    # frases dizem. A versão anterior afirmava "o WiFi está desligado", que é
+    # uma causa entre várias: o rádio pode estar ligado e sem associar, ou
+    # associado e sem endereço. Só a consequência é conhecida.
     "wifi.radio_up": {
-        "en": "The R1's Wi-Fi is up right now.",
-        "pt": "O WiFi do R1 está no ar agora.",
+        "en": "The R1 has a way out to the network right now.",
+        "pt": "O R1 tem saída para a rede agora.",
     },
     "wifi.radio_down": {
-        "en": "The R1's Wi-Fi is off at the moment (the queue waits; nothing "
-              "is lost).",
-        "pt": "O WiFi do R1 está desligado no momento (a fila espera; nada é "
-              "perdido).",
+        "en": "The R1 has no way out to the network at the moment — Wi-Fi off, "
+              "or on but not connected. The queue waits; nothing is lost.",
+        "pt": "O R1 está sem saída para a rede no momento — WiFi desligado, ou "
+              "ligado e sem conexão. A fila espera; nada é perdido.",
     },
     "wifi.last_send": {
         "en": "Last recorded send: {quando}",
@@ -1290,6 +1400,48 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.11": {
+        "en": "the time you listened is now MEASURED, not inferred. The "
+              "collector counts the seconds audio is actually coming out of "
+              "each track, instead of assuming the gap between two history "
+              "rows was all music. That gap was never music: pausing made a "
+              "track you did finish come out half-listened and get thrown "
+              "away, and starting the player with music already on made the "
+              "track playing right then go up as a scrobble the moment it "
+              "began — showing on your profile as scrobbled and as "
+              "\"scrobbling now\" at the same time. Pausing now suspends the "
+              "count instead of ending the track, and the track playing when "
+              "the collector wakes up is counted from zero. The last track of "
+              "a session also stops waiting twelve minutes to be sent",
+        "pt": "o tempo ouvido agora é MEDIDO, e não deduzido. O coletor conta "
+              "os segundos em que sai som de cada faixa, em vez de supor que "
+              "o espaço entre duas linhas do histórico foi tudo música. Esse "
+              "espaço nunca foi música: pausar fazia uma faixa que você "
+              "terminou sair como meia escuta e ser descartada, e ligar o "
+              "player com música tocando fazia a faixa daquele momento subir "
+              "como scrobble no instante em que começou — aparecendo no "
+              "perfil como scrobbada e como \"ouvindo agora\" ao mesmo "
+              "tempo. Pausar agora suspende a contagem em vez de encerrar a "
+              "faixa, e a faixa que já estava tocando quando o coletor "
+              "acorda é contada do zero. A última faixa de cada sessão também "
+              "deixa de esperar doze minutos para ser enviada",
+    },
+    "novidade.10": {
+        "en": "a track now has to be played almost to the end to count — "
+              "90% of it, not the half Last.fm settles for. Half meant a track "
+              "you walked away from went up as if you had listened to it, and "
+              "an integer rounding let even 49.6% through. Also: you can "
+              "select rows in the queue and discard them, so a track you do "
+              "not want on your profile no longer means wiping the whole "
+              "queue",
+        "pt": "uma faixa agora precisa ter tocado quase até o fim para contar "
+              "— 90% dela, e não a metade com que o Last.fm se contenta. "
+              "Metade fazia uma faixa largada no meio subir como se tivesse "
+              "sido ouvida, e um arredondamento deixava passar até 49,6%. "
+              "Também: dá para marcar linhas da fila e descartá-las, então "
+              "uma faixa que você não quer no perfil deixa de exigir apagar a "
+              "fila inteira",
+    },
     "novidade.9": {
         "en": "three counting bugs found by testing on a real device: a track "
               "that had only just started was credited in full whenever the "
@@ -2020,9 +2172,31 @@ TEXTOS: dict[str, dict[str, str]] = {
         "en": "The device is listed as offline.",
         "pt": "O aparelho está listado como offline.",
     },
+    # "offline" quase nunca é o cabo, no R1. É o aparelho travado: o adb ainda
+    # enxerga o gadget USB, mas nada do outro lado responde. Mandar
+    # desconectar e reconectar era o conselho errado, e é o primeiro que
+    # alguém tenta — várias vezes, antes de desconfiar do aparelho.
     "adb.err.offline.body": {
-        "en": "Unplug the cable, wait a few seconds and plug it in again.",
-        "pt": "Desconecte o cabo, espere alguns segundos e conecte de novo.",
+        "en": "On the R1 this usually means the player itself has locked up, "
+              "not that the cable is loose: adb can still see the USB device, "
+              "but nothing behind it answers.\n\n"
+              "  1. Hold the power button until the screen goes dark (10 s, "
+              "or 20-30 s if it does not react), then turn it back on.\n"
+              "  2. If it comes back and adb still says offline, run "
+              "'adb kill-server' and try again.\n"
+              "  3. Only then suspect the cable or the port.\n\n"
+              "Nothing in the queue is lost by a hard reset — it lives on the "
+              "device's own storage.",
+        "pt": "No R1 isto normalmente quer dizer que o próprio player travou, "
+              "e não que o cabo está solto: o adb ainda enxerga o dispositivo "
+              "USB, mas nada do outro lado responde.\n\n"
+              "  1. Segure o botão de ligar até a tela apagar (10 s, ou 20-30 s "
+              "se ele não reagir), e ligue de novo.\n"
+              "  2. Se voltar e o adb continuar dizendo offline, rode "
+              "'adb kill-server' e tente outra vez.\n"
+              "  3. Só então desconfie do cabo ou da porta.\n\n"
+              "Nada da fila se perde num reset forçado — ela mora na memória "
+              "do próprio aparelho.",
     },
     "adb.err.nodevice": {
         "en": "adb found no device.",
@@ -2491,6 +2665,10 @@ TEXTOS: dict[str, dict[str, str]] = {
     "play.too_little": {
         "en": "heard for {ouviu}s of {total}s (needed {precisa}s)",
         "pt": "ouvida por {ouviu}s de {total}s (precisava de {precisa}s)",
+    },
+    "fila.playing": {
+        "en": "still playing — it goes up on its own when it ends",
+        "pt": "ainda tocando — ela sobe sozinha quando terminar",
     },
     "fila.last_of_session": {
         "en": "last of the session: there is no way to know how much played",

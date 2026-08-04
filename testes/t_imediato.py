@@ -73,14 +73,14 @@ b2 = os.path.join(WORK, "im2.db")
 #   b2  a faixa curta comeca  -> a linha dela aparece, e ela fica em aberto
 #   b3  a proxima comeca      -> fecha a anterior, que agora tem tempo ouvido
 #
-# Entre uma e outra passa mais que a metade da duracao, senao a faixa foi
-# pulada e "nada a enviar" e a resposta certa.
+# Entre uma e outra passa 90% da duracao, que e a regua: abaixo disso a
+# faixa foi largada no meio e "nada a enviar" e a resposta certa.
 #
 # O que este teste mede e o tempo entre o FECHAMENTO e o envio: e ai que o
 # scrobble esta pronto para subir.
 b3 = os.path.join(WORK, "im3.db")
 DUR = 40
-ESPERA_TOCANDO = 26    # > DUR/2, entao a faixa conta
+ESPERA_TOCANDO = 37    # >= 90% de DUR, entao a faixa conta
 banco(b1, [("yui", "Again", 257)])
 banco(b2, [("yui", "Again", 257), ("FLOW", "Go", DUR)])
 banco(b3, [("yui", "Again", 257), ("FLOW", "Go", DUR),
@@ -97,7 +97,21 @@ pkill -f "{T}/" 2>/dev/null || true
 sleep 1
 rm -rf {T}; mkdir -p {T}/scrobble {T}/tmp
 cp {SEND} {T}/scrobble/r1send;    chmod 755 {T}/scrobble/r1send
-cp {COLE} {T}/scrobble/r1collect; chmod 755 {T}/scrobble/r1collect
+cp {COLE} {T}/scrobble/real;      chmod 755 {T}/scrobble/real
+# O tempo ouvido e MEDIDO no pcm, e aqui nao ha placa de som nenhuma: sem
+# fingir o audio, o daemon mediria zero e estaria certo — nada tocou. Este
+# recado responde "esta saindo som" no lugar do r1collect; o resto passa
+# direto para o de verdade.
+cat > {T}/scrobble/r1collect <<'FIMFALSO'
+#!/bin/sh
+case "$1" in
+estado)  cat {T}/pcm 2>/dev/null || {{ echo "pcm=0"; echo ""; }} ;;
+tocando) sed -n 2p {T}/pcm 2>/dev/null ;;
+*)       exec {T}/scrobble/real "$@" ;;
+esac
+FIMFALSO
+chmod 755 {T}/scrobble/r1collect
+printf 'pcm=1\\n{T}/faixa.flac\\n' > {T}/pcm
 cp {r.to_posix_path(b1)} {T}/banco.db
 printf '%s\\n' '0000000000000000000000000000000f' > {T}/scrobble/sk
 printf '%s\\n' '00000000000000000000000000000000' > {T}/scrobble/segredo

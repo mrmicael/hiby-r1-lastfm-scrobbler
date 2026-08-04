@@ -44,11 +44,27 @@ USER_AGENT = "hiby-r1-scrobbler/1.0"
 # Um lote de track.scrobble aceita no máximo 50 faixas.
 BATCH = 50
 
-# Regras do Last.fm para o que conta como uma execução:
-#   - a faixa tem de durar mais de 30 s
-#   - e ter sido ouvida por mais da metade, ou por 4 minutos, o que vier antes
+# O que conta como uma execução.
+#
+# O Last.fm pede metade da faixa, ou 4 minutos, o que vier antes. Aqui a régua
+# é mais alta de propósito: com metade, uma faixa largada no meio sobe para o
+# perfil como se tivesse sido ouvida, e foi essa a reclamação — "pulei e
+# contabilizou como se tivesse escutado toda".
+#
+# Não são 100% porque trocar de faixa um ou dois segundos antes do fim é o uso
+# normal do aparelho; em 100% quase nada subiria. 90% é "ouviu até o fim" na
+# prática.
+#
+# Este número tem de ser o MESMO do MIN_PCT no r1send.c: são duas
+# implementações da mesma regra, e o teste diferencial compara as duas.
 MIN_TRACK_SECONDS = 30
 FULL_PLAY_SECONDS = 240
+MIN_PLAY_PERCENT = 90
+# Tetos da margem que a incerteza da medição concede. Iguais ao MARGEM_MAX e
+# ao MARGEM_PCT do r1send.c, pelo mesmo motivo dos outros números daqui: são
+# duas implementações da mesma regra, e o teste diferencial compara as duas.
+MEASURE_SLACK_MAX = 30
+MEASURE_SLACK_PCT = 10
 
 
 class LastfmError(InstallerError):
@@ -88,6 +104,13 @@ class Play:
     # nada"). Confundir os dois faria toda faixa pulada passar como válida.
     listened: int = -1
     source: str = ""
+    # A linha do historico de onde ela veio. E o que permite dizer ao
+    # aparelho "esta aqui eu nao quero" sem depender de artista e titulo,
+    # que se repetem.
+    rowid: int = 0
+    # A régua com que `listened` foi medido, em segundos; 0 quando o número
+    # não veio de medição nenhuma. Ver a margem em scrobblable().
+    regua: int = 0
 
     def scrobblable(self) -> tuple[bool, str]:
         """As regras do Last.fm, ditas em voz alta.
@@ -103,8 +126,24 @@ class Play:
             return False, t("play.too_short", segundos=self.duration,
                             minimo=MIN_TRACK_SECONDS)
         if self.duration and self.listened >= 0:
-            preciso = min(self.duration / 2.0, FULL_PLAY_SECONDS)
-            if self.listened < preciso:
+            # Arredondando para CIMA, como o r1send.c faz com o `+ 99`. Com a
+            # divisão inteira de antes, uma faixa de 125 s precisava de 62 s e
+            # 62 passava — 49,6% da faixa contava como ouvida.
+            preciso = min(-(-self.duration * MIN_PLAY_PERCENT // 100),
+                          FULL_PLAY_SECONDS)
+            # A margem é a incerteza da própria medição, não folga.
+            #
+            # O daemon olha o pcm de tantos em tantos segundos; cada vez que o
+            # áudio para ou volta, a hora disso se perde dentro de um
+            # intervalo, e o pedaço tocado ali não entrou na soma. Cobrar os
+            # 90% de um número que veio sabidamente curto reprovaria faixa
+            # ouvida até o fim — era o que fazia quem pausa perder a música.
+            #
+            # O teto proporcional garante que, por pior que a medição tenha
+            # sido, nada conta com menos de 80% da faixa tocado.
+            margem = min(max(0, self.regua), MEASURE_SLACK_MAX,
+                         self.duration * MEASURE_SLACK_PCT // 100)
+            if self.listened + margem < preciso:
                 return False, t("play.too_little", ouviu=self.listened,
                                 total=self.duration,
                                 precisa=f"{preciso:.0f}")

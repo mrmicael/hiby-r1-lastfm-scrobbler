@@ -25,6 +25,9 @@ CURL = DIR + "/curl"
 DAEMON = DIR + "/r1scrobbled"
 FILA = DIR + "/fila.tsv"
 ESTADO = DIR + "/estado"
+# A medição da faixa em curso, salva de tempos em tempos para um travamento
+# não levá-la junto. Existe só enquanto há faixa aberta. Ver o r1scrobbled.sh.
+MEDINDO = DIR + "/medindo"
 ENVIADOS = DIR + "/enviados"
 CONF = DIR + "/conf"
 SK = DIR + "/sk"
@@ -59,10 +62,10 @@ LANCADOR = "/usr/bin/hiby_player.sh"
 
 # Sobe a cada mudança que valha reinstalar no aparelho. A tela compara com o
 # que está gravado lá e só oferece a atualização quando há diferença.
-VERSAO = 9
+VERSAO = 11
 # As versões que existem. O que cada uma trouxe está no catálogo de textos,
 # sob "novidade.<n>", porque isso aparece na tela e tem de estar traduzido.
-NOVIDADES = (9, 8, 7, 6, 5, 4, 3, 2, 1)
+NOVIDADES = (11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
 
 
 def novidade(versao: int) -> str:
@@ -101,6 +104,8 @@ class Situacao:
     # None = não deu para saber (lançador ausente ou ilegível).
     init_roda: bool | None = None
     ultimo_envio: str = ""
+    # O que o daemon disse ao cair para o `sleep`, com as palavras dele.
+    motivo_espera: str = ""
     detalhe: str = ""
 
     @property
@@ -109,8 +114,13 @@ class Situacao:
 
     # Quantas o r1send ainda mandaria. -1 = ele não estava lá para responder.
     enviaveis: int = -1
-    # Caminho da planilha no cartão, vazio quando ela não existe.
+    # Caminho da planilha no cartão, vazio quando ela ainda não existe.
     csv_cartao: str = ""
+    # A pasta do cartão onde dá para escrever, vazia quando não há cartão
+    # gravável. É diferente da anterior: numa instalação nova existe
+    # cartão e ainda não existe planilha, e confundir os dois fazia a tela
+    # dizer "nenhum cartão gravável" para quem tinha o cartão ali.
+    pasta_cartao: str = ""
 
     @property
     def pendentes(self) -> int:
@@ -155,12 +165,30 @@ def situacao(adb: Adb) -> Situacao:
         # que aplica as mesmas regras do envio.
         f"echo ENVIAVEIS=$([ -x {REMETENTE} ] && {REMETENTE} listar {FILA} "
         f"{ENVIADOS} 2>/dev/null | wc -l || echo -1); "
-        # Onde a planilha foi parar. A mesma lista de candidatos do daemon,
-        # na mesma ordem — quem perguntou "cadê o scrobbles.csv?" estava
-        # procurando num caminho que o aparelho nem usa.
+        # Onde a planilha foi parar — e, separadamente, se há cartão.
+        #
+        # Isto perguntava só pelo arquivo, e a tela concluía dele que não havia
+        # cartão gravável. Numa instalação nova o arquivo ainda não existe, e
+        # a pessoa recebia "nenhum cartão de memória gravável encontrado" com
+        # o cartão ali, perfeitamente gravável. A pergunta e a conclusão eram
+        # coisas diferentes.
+        #
+        # São duas perguntas, então: dá para escrever no cartão? e o arquivo
+        # já está lá? A primeira é respondida do jeito que o daemon responde —
+        # tentando criar a pasta e escrever nela.
         f"for c in {' '.join(CARTOES)}; do "
-        f"  [ -f \"$c/{PASTA_SD}/scrobbles.csv\" ] && "
-        f"{{ echo \"CSV=$c/{PASTA_SD}/scrobbles.csv\"; break; }}; "
+        f"  [ -d \"$c\" ] || continue; "
+        # A prova de escrita é um arquivo na RAIZ do cartão, criado e apagado
+        # na mesma linha. Nada de `mkdir` da nossa pasta: esta consulta roda
+        # antes de qualquer instalação, e uma consulta de estado não pode
+        # deixar rastro no cartão de ninguém.
+        f"  if : > \"$c/.r1lastfm.escrita\" 2>/dev/null; then "
+        f"    rm -f \"$c/.r1lastfm.escrita\"; "
+        f"    echo \"CARTAO=$c/{PASTA_SD}\"; "
+        f"    [ -f \"$c/{PASTA_SD}/scrobbles.csv\" ] && "
+        f"      echo \"CSV=$c/{PASTA_SD}/scrobbles.csv\"; "
+        f"    break; "
+        f"  fi; "
         f"done; "
         f"echo ROWID=$(cat {ESTADO} 2>/dev/null || echo 0); "
         f"echo VERSAO=$(cat {VERSAO_ARQ} 2>/dev/null || echo 0); "
@@ -175,7 +203,13 @@ def situacao(adb: Adb) -> Situacao:
         f"echo ULTIMO=$(grep 'enviado ao Last.fm' /tmp/.r1sc.log 2>/dev/null "
         f"| tail -1); "
         f"grep -q 'sem fork' /tmp/.r1sc.log 2>/dev/null && echo FIFO=1 || "
-        f"{{ grep -q 'usando sleep' /tmp/.r1sc.log 2>/dev/null && echo FIFO=0 || echo FIFO=?; }}"
+        f"{{ grep -q 'usando sleep' /tmp/.r1sc.log 2>/dev/null && echo FIFO=0 || echo FIFO=?; }}; "
+        # O motivo, com as palavras do proprio daemon. A tela dizia "este
+        # busybox nao tem read -t" — e um dos dois motivos que o daemon
+        # registra e justamente "'read -t' existe mas nao esperou". Eu
+        # descartava a resposta e punha um palpite no lugar dela.
+        f"echo ESPERA=$(grep 'usando sleep' /tmp/.r1sc.log 2>/dev/null "
+        f"| tail -1)"
     )
     res = adb.shell(script, mutating=False)
     vals: dict[str, str] = {}
@@ -216,7 +250,9 @@ def situacao(adb: Adb) -> Situacao:
         init_roda=(True if vals.get("SUP") == "1"
                    else False if vals.get("SUP") == "0" else None),
         csv_cartao=vals.get("CSV", "").strip(),
+        pasta_cartao=vals.get("CARTAO", "").strip(),
         ultimo_envio=vals.get("ULTIMO", "").strip(),
+        motivo_espera=vals.get("ESPERA", "").strip(),
         detalhe=res.stdout.strip(),
     )
 
@@ -293,7 +329,37 @@ def instalar_envio(adb: Adb, log: Log, *, remetente_local: str,
     log.step(t("ap.teaching"))
     adb.mkdir(DIR)
     adb.push(remetente_local, REMETENTE, mode="755")
-    adb.push(curl_local, CURL, mode="755")
+
+    # O curl é experimentado NO APARELHO antes de tomar o lugar do que já
+    # estava lá.
+    #
+    # Uma receita de compilação que parecia mais correta gerava um curl que
+    # morria com sinal 11 em toda requisição, e quem ligou o envio por WiFi
+    # recebeu isso depois de meia hora compilando:
+    #     Segmentation fault
+    #     CURL_FALHOU rc=139
+    # sem nada na mensagem que apontasse para o binário recém-feito. Pior: ele
+    # substituiu um curl que funcionava.
+    #
+    # Então ele entra por um nome temporário, é executado, e só vira o curl
+    # oficial se responder. Um binário que não roda não derruba o que rodava.
+    provisorio = CURL + ".novo"
+    adb.push(curl_local, provisorio, mode="755")
+    prova = adb.shell(
+        f"{provisorio} --version >/dev/null 2>&1; v=$?; "
+        f"{provisorio} -sS --max-time 5 -o /dev/null http://127.0.0.1:1/ "
+        f">/dev/null 2>&1; r=$?; echo \"V=$v R=$r\"",
+        mutating=False)
+    saida = prova.stdout
+    # 139 = 128+11, morto por SIGSEGV. O 7 (não conseguiu conectar) é o que se
+    # espera de um curl são apontado para uma porta fechada.
+    if "V=139" in saida or "R=139" in saida or "V=0" not in saida:
+        adb.shell(f"rm -f {provisorio}")
+        raise InstallerError(t("ap.err.curl.quebrado.title"),
+                             t("ap.err.curl.quebrado.body", saida=saida.strip()))
+    adb.shell(f"mv -f {provisorio} {CURL} && chmod 755 {CURL}")
+    log.ok(t("ap.curl.ok"))
+
     if cacert_local and os.path.isfile(cacert_local):
         adb.push(cacert_local, CACERT, mode="644")
 
@@ -547,8 +613,13 @@ def desinstalar(adb: Adb, log: Log, *, apagar_fila: bool = False) -> None:
         adb.shell(f"rm -rf {DIR}")
         log.warn(t("ap.removed.all"))
     else:
+        # A fila fica; o resto sai. O `medindo` é a medição de uma faixa que
+        # estava tocando na hora, e sem o daemon ninguém a fecharia — deixá-lo
+        # faria a próxima instalação recuperar uma escuta de meses atrás. As
+        # marcas .visto* são só mtimes de controle e não valem nada sozinhas.
         adb.shell(f"rm -f {BIN} {DAEMON} {CONF} {REMETENTE} {CURL} {TRAVA_ANTIGA} "
-                  f"{SK} {SEGREDO} {APIKEY} {DIR}/.visto {DIR}/.visto2")
+                  f"{SK} {SEGREDO} {APIKEY} {MEDINDO} "
+                  f"{DIR}/.visto {DIR}/.visto2 {DIR}/.visto3")
         log.ok(t("ap.removed.kept", fila=FILA))
 
 
@@ -603,12 +674,18 @@ def limpar_fila(adb: Adb, log: Log, enviados: set[int]) -> None:
         return
     lista = ",".join(str(i) for i in sorted(enviados))
     # Reescreve mantendo os marcadores e as faixas que ainda não foram.
+    #
+    # O t1 sai junto com o p1 do mesmo rowid. Ele traz o tempo medido daquela
+    # faixa e nada mais; sem a faixa não quer dizer coisa alguma, e deixá-lo
+    # para trás faria a fila continuar crescendo justamente na limpeza. Os
+    # dois têm o rowid no mesmo campo, então é a mesma pergunta.
     script = (
         f"cd {DIR} || exit 1; "
         f"cp fila.tsv fila.tsv.bak || exit 1; "
         f"awk -F'\\t' -v ids='{lista}' 'BEGIN{{n=split(ids,a,\",\"); "
         f"for(i=1;i<=n;i++) m[a[i]]=1}} "
-        f"$1!=\"p1\" || !($2 in m)' fila.tsv.bak > fila.tsv.novo && "
+        f"($1!=\"p1\" && $1!=\"t1\") || !($2 in m)' fila.tsv.bak "
+        f"> fila.tsv.novo && "
         f"mv fila.tsv.novo fila.tsv && rm -f fila.tsv.bak"
     )
     adb.shell(script)

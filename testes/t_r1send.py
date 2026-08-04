@@ -327,6 +327,47 @@ for nome, conteudo in (
                 os.path.join(WORK, "rs_ruim_ids.txt"))
     check(f"{nome:20s} -> saida limpa", res.code in (0, 2, 3), f"rc={res.code}")
 
+
+print()
+print("=" * 74)
+print("5. sem marcador de fim, as duas implementacoes tem de CONCORDAR")
+print("=" * 74)
+# Aqui elas discordavam, e do jeito que mais dói: o Python dava credito
+# INTEGRAL a uma faixa cujo fim ninguem sabia (a politica "ultima da sessao
+# conta como inteira"), enquanto o C a descartava. Ou seja, quem enviasse
+# pelo cabo recebia no perfil faixas que o envio por WiFi teria recusado —
+# a mesma faixa, a mesma fila, dois resultados.
+#
+# A politica fazia sentido enquanto o daemon nao sabia dizer quando o audio
+# parava. Hoje ele escreve o f1, e um fim desconhecido e mesmo desconhecido.
+# As horas ficam no presente RECENTE, e nao no T0 fixo la atras. O r1send usa
+# o relogio do sistema, e com um T0 no passado ele fecharia a ultima faixa
+# sozinho pela regra do relogio ("ja passou tempo de sobra para ela ter
+# cabido"). O fim deixaria de ser desconhecido, e o teste nao mediria nada.
+import time as _time
+AGORA_R = int(_time.time())
+COMECOU = AGORA_R - 40          # comecou ha 40 s e dura 240: ainda tocando
+SEM_FIM = "\n".join([
+    f"b1\t{COMECOU - 300}",
+    p1(1, COMECOU - 257, "yui", "Again", 257),
+    p1(2, COMECOU,       "FLOW", "Go!!!", 240),
+    # nenhum f1, nenhum b1 depois: o fim da ultima e desconhecido
+]) + "\n"
+f_fila2 = arq("rs_semfim.tsv", SEM_FIM)
+f_env2 = arq("rs_semfim_env.txt", "")
+
+agora2 = AGORA_R
+res2 = rodar("listar", f_fila2, f_env2)
+c2 = sorted((x[2], x[3]) for x in
+            [l.split("\t") for l in res2.stdout.strip().splitlines() if l.strip()])
+regs2, _ = FQ.ler(SEM_FIM)
+py2 = sorted((p.artist, p.track) for p in FQ.reconstruir(regs2, agora=agora2).execucoes)
+check("as duas mandam exatamente as mesmas faixas", c2 == py2,
+      f"C={c2} py={py2}")
+check("e a ultima, de fim desconhecido, nao vai em nenhuma das duas",
+      ("FLOW", "Go!!!") not in c2 and ("FLOW", "Go!!!") not in py2,
+      f"C={c2} py={py2}")
+
 print()
 print("=" * 74)
 print("FALHAS:", falhas if falhas else "nenhuma")

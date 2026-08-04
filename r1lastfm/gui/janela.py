@@ -267,12 +267,21 @@ class Painel(ttk.Frame):
         linha.pack(fill="x")
         ttk.Button(linha, text=t("btn.queue.fetch"), style="Accent.TButton",
                    command=self._puxar).pack(side="left")
+        # Descartar o que a pessoa não quer no perfil. Sem isto, a única saída
+        # para uma faixa indesejada era apagar a fila inteira — e quem escuta
+        # todo dia e envia pelo cabo tem a fila cheia de coisa que já resolveu.
+        self.btn_descartar = ttk.Button(linha, text=t("btn.queue.discard"),
+                                        command=self._descartar,
+                                        state="disabled")
+        self.btn_descartar.pack(side="left", padx=(8, 0))
         # A política de "última faixa da sessão" existia enquanto não se sabia
-        # em que momento o player grava a linha. Medido no aparelho, ele grava
-        # no FIM — a linha só existe porque a faixa acabou, e não há mais
-        # incerteza para o usuário resolver. O modo continua no código, para o
-        # caso de outra versão de firmware se comportar de outro jeito.
-        self.var_ultima = tk.StringVar(value=FQ.ULTIMA_ASSUME_INTEIRA)
+        # em que momento o player grava a linha. Observado ao vivo: ele grava
+        # no COMEÇO, e quem fecha uma faixa é a linha da seguinte. A última de
+        # cada sessão é fechada pelo marcador que o daemon escreve quando vê o
+        # áudio parar, então também não sobra incerteza para o usuário
+        # resolver. O modo continua no código, para o caso de outra versão de
+        # firmware se comportar de outro jeito.
+        self.var_ultima = tk.StringVar(value=FQ.ULTIMA_PADRAO)
 
         self.lbl_resumo = ttk.Label(c, text=t("card.queue.empty"),
                                     style="CardMuted.TLabel",
@@ -428,15 +437,24 @@ class Painel(ttk.Frame):
                     partes.append(t("dev.boots") if s.no_init
                                   else t("dev.no_boot"))
                 if s.espera_sem_fork is False:
-                    partes.append(t("dev.no_read_t"))
+                    # Com o motivo do próprio daemon quando ele o registrou.
+                    partes.append(
+                        t("dev.no_read_t.why", motivo=s.motivo_espera)
+                        if s.motivo_espera else t("dev.no_read_t"))
             partes.append(t("dev.counts", execucoes=s.execucoes,
                             pendentes=s.pendentes))
             if s.descartadas:
                 partes.append(t("dev.discarded", descartadas=s.descartadas))
-            # Onde a planilha está — ou por que não há uma. Perguntaram "cadê
-            # o scrobbles.csv?" e a tela não dizia nada a respeito.
-            partes.append(t("dev.card", caminho=s.csv_cartao)
-                          if s.csv_cartao else t("dev.card.none"))
+            # Três estados, não dois. A planilha já existe? há cartão onde
+            # escrevê-la? Antes eu procurava só o arquivo e concluía dele que
+            # não havia cartão — e quem instalou agora, com o cartão no lugar,
+            # recebia "nenhum cartão de memória gravável encontrado".
+            if s.csv_cartao:
+                partes.append(t("dev.card", caminho=s.csv_cartao))
+            elif s.pasta_cartao:
+                partes.append(t("dev.card.soon", caminho=s.pasta_cartao))
+            else:
+                partes.append(t("dev.card.none"))
             self.lbl_dispositivo.configure(text="  ".join(partes))
             self._render_boot(s)
             self._render_versao(s)
@@ -1012,19 +1030,71 @@ class Painel(ttk.Frame):
 
         vai = t("state.will_send")
         self.tree.delete(*self.tree.get_children())
+        # De qual linha do histórico veio cada linha da tabela. É o que permite
+        # descartar exatamente a que a pessoa marcou: artista e título se
+        # repetem, o rowid não.
+        self.rowid_da_linha = {}
         for play in rec.execucoes:
-            self.tree.insert("", "end", tags=("vai",), values=(
+            iid = self.tree.insert("", "end", tags=("vai",), values=(
                 _hhmm(play.timestamp), play.artist, play.track, play.album,
                 _dur(play.listened) + "/" + _dur(play.duration), vai))
+            self.rowid_da_linha[iid] = play.rowid
         for play, motivo in rec.descartadas:
-            self.tree.insert("", "end", tags=("fica",), values=(
+            iid = self.tree.insert("", "end", tags=("fica",), values=(
                 _hhmm(play.timestamp), play.artist, play.track, play.album,
                 _dur(play.listened) + "/" + _dur(play.duration), motivo))
+            self.rowid_da_linha[iid] = play.rowid
         self._reavaliar_envio()
 
     def _reavaliar_envio(self) -> None:
         pronto = bool(self._chave()) and bool(self.rec and self.rec.execucoes)
         self.btn_enviar.configure(state="normal" if pronto else "disabled")
+        self.btn_descartar.configure(
+            state="normal" if self.tree.get_children() else "disabled")
+
+    def _descartar(self) -> None:
+        """Tira da fila as faixas marcadas na tabela.
+
+        Elas são anotadas como já resolvidas no aparelho, que é o mesmo
+        mecanismo que impede uma faixa enviada de subir duas vezes. Não é uma
+        gambiarra: "já tratei desta" é exatamente o que se quer dizer.
+
+        Nada é apagado do histórico do player — só desta fila.
+        """
+        marcadas = self.tree.selection()
+        if not marcadas:
+            W.show_error(self, t("fila.nada_marcado.title"),
+                         t("fila.nada_marcado.body"))
+            return
+        ids = {self.rowid_da_linha.get(i, 0) for i in marcadas}
+        ids.discard(0)
+        if not ids:
+            return
+        nomes = [self.tree.item(i, "values")[2] for i in list(marcadas)[:6]]
+        if not W.confirm(self, t("fila.descartar.title", n=len(ids)),
+                         t("fila.descartar.body", n=len(ids),
+                           faixas="\n  • ".join([""] + nomes)),
+                         ok_text=t("fila.descartar.ok"), danger=True):
+            return
+
+        adb = self._adb()
+        if adb is None:
+            return
+        log = self.log
+
+        def work():
+            adb.start_server()
+            adb.require_device()
+            AP.marcar_enviados(adb, log, ids)
+            return AP.ler_enviados(adb)
+
+        def done(enviados) -> None:
+            self.enviados = enviados
+            log.ok(t("fila.descartadas", n=len(ids)))
+            self._reconstruir()
+
+        self.app.run_async(work, on_done=done, on_error=self._erro,
+                           busy_text=t("fila.descartando"))
 
     # -- envio ---------------------------------------------------------------
 

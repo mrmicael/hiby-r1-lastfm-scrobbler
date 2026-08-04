@@ -165,8 +165,12 @@ vai = [v for v in vals if v[5] == VAI]
 fica = [v for v in vals if v[5] != VAI]
 check("3 vao", len(vai) == 3, str([v[2] for v in vai]))
 check("a pulada fica", len(fica) == 1 and fica[0][2] == "Pulei em 40s", str(fica))
+# 90% de 300 seriam 270, mas o teto de 4 minutos do Last.fm corta em 240 —
+# quatro minutos ja contam como faixa ouvida, por mais longa que ela seja.
+# A regua deixou de ser a metade: com metade, uma faixa largada no meio subia
+# como se tivesse sido ouvida.
 check("o motivo aparece na coluna",
-      t("play.too_little", ouviu=40, total=300, precisa=150) == fica[0][5],
+      t("play.too_little", ouviu=40, total=300, precisa=240) == fica[0][5],
       fica[0][5])
 check("botao de enviar habilitou", str(win.btn_enviar["state"]) == "normal")
 check("resumo escrito", t("fila.ready", n=3) in win.lbl_resumo.cget("text"),

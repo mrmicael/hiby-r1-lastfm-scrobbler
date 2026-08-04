@@ -401,20 +401,38 @@ cd "$ROOT/curl-src"
   --disable-telnet --disable-tftp --disable-pop3 --disable-imap \
   --disable-smtp --disable-gopher --disable-mqtt --disable-smb \
   --disable-manual --disable-docs --disable-libcurl-option \
-  --disable-threaded-resolver \
   --without-libpsl --without-libidn2 --without-zlib --without-brotli \
   --without-zstd --without-nghttp2 --without-ngtcp2 --without-librtmp \
   CC="$CC" AR="$AR" RANLIB="$RANLIB" \
   CFLAGS="$CFLAGS" \
   CPPFLAGS="-I$PREFIX/include" \
   LDFLAGS="-static -L$PREFIX/lib"
-# --disable-threaded-resolver is not a size tweak: it is a correctness fix,
-# found by running the built curl on a real R1. By default curl resolves names
-# in a pthread, and in a statically linked musl binary that thread never
+# --disable-threaded-resolver USED to be here, and it must not come back.
+#
+# The reasoning was sound and the result was worse. By default curl resolves
+# names in a pthread, and in a statically linked musl binary that thread never
 # starts on this device — every request dies with
 #   curl: (6) getaddrinfo() thread failed to start
 # even though the device resolves names fine (busybox nslookup and ping work).
-# Without the threaded resolver curl calls getaddrinfo directly and DNS works.
+# Disabling the threaded resolver makes curl call getaddrinfo directly, which
+# looks like the obvious fix.
+#
+# It is not. That build SEGFAULTS on every request — signal 11, before any
+# network traffic, with or without TLS. Somebody who turned Wi-Fi sending on
+# got exactly that:
+#   Segmentation fault
+#   CURL_FALHOU rc=139
+# and there was nothing in the message to suggest the curl they had just spent
+# half an hour compiling was the problem.
+#
+# So the threaded resolver stays, broken thread and all, and the DNS problem is
+# worked around where it belongs: the daemon resolves the name with busybox
+# nslookup and hands curl the address with --resolve. That path is proven — it
+# is what every successful send from this project has gone through.
+#
+# The lesson is the same one the firmware patcher taught: a fix that was
+# reasoned about is not a fix that was run. Whatever is built here is now smoke
+# tested ON THE DEVICE before it is allowed to replace a working curl.
 #
 # Note: no LIBS= here on purpose. --with-mbedtls already adds the include and
 # library paths and the -lmbedtls/-lmbedx509/-lmbedcrypto it needs. Passing LIBS

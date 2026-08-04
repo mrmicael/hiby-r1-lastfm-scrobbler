@@ -141,7 +141,10 @@ casos = [
 ]
 for nome, fn in casos:
     adb = AdbFalso({"[ -f " + AP.FILA: "SIM", "-s " + AP.FILA: "SIM",
-                    "echo SIM": "SIM", "OK": "OK"})
+                    "echo SIM": "SIM", "OK": "OK",
+                    # A prova do curl: roda, e nao conecta na porta
+                    # fechada. E o que um curl sao responde.
+                    "--version": "V=0 R=7"})
     try:
         fn(adb)
         check(f"{nome:24s} chamou sem erro de assinatura", True,
@@ -162,13 +165,21 @@ print("3. o que cada funcao manda para o aparelho faz sentido")
 print("=" * 74)
 # O aparelho responde que TEM os certificados; sem isso a instalacao e
 # recusada de proposito (ver o caso logo abaixo).
-adb = AdbFalso({"echo SIM": "SIM"})
+adb = AdbFalso({"echo SIM": "SIM", "--version": "V=0 R=7"})
 AP.instalar_envio(adb, log, remetente_local=P("r1send"), curl_local=P("curl"),
                   cacert_local=P("cacert.pem"), session_key="k" * 32,
                   api_key="a" * 32, api_secret="s" * 32)
 destinos = [r for _l, r, _m in adb.pushes]
 check("empurrou o r1send", AP.REMETENTE in destinos, str(destinos))
-check("empurrou o curl", AP.CURL in destinos, str(destinos))
+# O curl entra por um nome temporario e so vira o oficial depois de ser
+# executado no aparelho. Um binario que nao roda nao pode derrubar o que
+# rodava — foi o que aconteceu com quem ligou o envio por WiFi e recebeu um
+# curl que morria com sinal 11.
+check("empurrou o curl por um nome temporario",
+      AP.CURL + ".novo" in destinos, str(destinos))
+check("e so o promoveu depois de prova-lo",
+      any(f"mv -f {AP.CURL}.novo {AP.CURL}" in c for c in adb.comandos),
+      " | ".join(c[:50] for c in adb.comandos if "mv " in c))
 check("empurrou o cacert", AP.CACERT in destinos, str(destinos))
 todos = " ; ".join(adb.comandos)
 check("a chave de sessao vira 600", f"chmod 600 {AP.SK}" in todos,
@@ -265,6 +276,51 @@ check("aparelho sem r1send devolve -1",
 
 print()
 print("=" * 74)
+print("3g. 'nao ha cartao' e 'a planilha ainda nao existe' sao coisas diferentes")
+print("=" * 74)
+# Relato: "recebo 'nenhum cartao de memoria gravavel encontrado'. Nao sei o
+# que ha de errado com o meu cartao, ele e perfeitamente gravavel."
+#
+# Nao havia nada de errado com o cartao. Eu procurava o arquivo
+# scrobbles.csv e concluia DELE que nao havia cartao — mas o arquivo so
+# aparece depois que o coletor anota a primeira faixa. Quem instalou agora
+# recebia a acusacao. A pergunta e a conclusao eram coisas diferentes.
+adb_c = AdbFalso()
+AP.situacao(adb_c)
+pedido_c = " ".join(adb_c.comandos)
+check("a consulta TENTA ESCREVER no cartao, nao so procura o arquivo",
+      ".r1lastfm.escrita" in pedido_c,
+      "so procurar o csv nao prova nada sobre o cartao")
+check("e apaga o que escreveu para testar",
+      'rm -f "$c/.r1lastfm.escrita"' in pedido_c)
+# Uma consulta de estado nao pode deixar rastro: ela roda antes de qualquer
+# instalacao, e criar a nossa pasta no cartao de quem so abriu o programa
+# para olhar seria deixar lixo sem ter sido convidado.
+check("e NAO cria pasta nenhuma no cartao", "mkdir -p" not in pedido_c,
+      [c for c in adb_c.comandos if "mkdir" in c])
+
+s = AP.Situacao(instalado=True,
+                pasta_cartao="/data/mnt/sd_0/r1lastfm", csv_cartao="")
+check("cartao presente e planilha ainda nao: a pasta e conhecida",
+      bool(s.pasta_cartao) and not s.csv_cartao)
+s = AP.Situacao(instalado=True, pasta_cartao="/data/mnt/sd_0/r1lastfm",
+                csv_cartao="/data/mnt/sd_0/r1lastfm/scrobbles.csv")
+check("com a planilha, os dois vem preenchidos",
+      bool(s.pasta_cartao) and bool(s.csv_cartao))
+s = AP.Situacao(instalado=True)
+check("sem cartao, os dois vem vazios",
+      not s.pasta_cartao and not s.csv_cartao)
+
+# E a tela: os TRES estados, nao dois.
+from r1lastfm.gui import janela as _JAN
+fonte_card = inspect.getsource(_JAN.Painel._ver_aparelho)
+check("a tela distingue os tres casos",
+      'if s.csv_cartao:' in fonte_card
+      and 'elif s.pasta_cartao:' in fonte_card
+      and 'dev.card.none' in fonte_card)
+
+print()
+print("=" * 74)
 print("3e. a Situacao percebe que o firmware nao executa o init.sh")
 print("=" * 74)
 # O bug que custou mais caro de todos: por meses a tela dizia "instalado,
@@ -305,7 +361,7 @@ print("=" * 74)
 # Antes isto era so um aviso, e o resultado foi um recurso que parecia
 # instalado e nunca funcionava: sem cacert o daemon nao manda nada e nao ha
 # como o usuario descobrir por que.
-adb_sem_ca = AdbFalso()   # o aparelho responde vazio: nao tem cacert
+adb_sem_ca = AdbFalso({"--version": "V=0 R=7"})   # sem cacert
 try:
     AP.instalar_envio(adb_sem_ca, log, remetente_local=P("r1send"),
                       curl_local=P("curl"), cacert_local="",

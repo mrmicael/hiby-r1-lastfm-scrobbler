@@ -315,18 +315,42 @@ echo "RSS_KB $(awk '/^VmRSS/{{print $2}}' /proc/$PID/status)"
 kill -TERM $PID 2>/dev/null || true
 sleep 2
 """
-res4 = r.posix_script(script4, name="daemon-cost", mutating=False, quiet=True,
-                      timeout=180)
-print("\n".join("   " + l for l in res4.stdout.splitlines()[:6]))
 import re as _re
-mst = _re.search(r"STAT (\d+) (\d+) (\d+) (\d+)", res4.stdout)
-mhz = _re.search(r"HZ (\d+)", res4.stdout)
-mrss = _re.search(r"RSS_KB (\d+)", res4.stdout)
-if mst and mhz:
-    hz = int(mhz.group(1))
-    ticks = sum(int(mst.group(i)) for i in (1, 2, 3, 4))
-    seg = ticks / hz
-    por_ciclo_ms = seg / CICLOS * 1000
+
+
+def medir_custo():
+    """Roda o daemon parado e devolve (ms por ciclo, RSS em kB, saida)."""
+    res = r.posix_script(script4, name="daemon-cost", mutating=False,
+                         quiet=True, timeout=180)
+    st = _re.search(r"STAT (\d+) (\d+) (\d+) (\d+)", res.stdout)
+    hz_ = _re.search(r"HZ (\d+)", res.stdout)
+    rss_ = _re.search(r"RSS_KB (\d+)", res.stdout)
+    if not (st and hz_):
+        return None, rss_, res
+    ticks_ = sum(int(st.group(i)) for i in (1, 2, 3, 4))
+    return (ticks_ / int(hz_.group(1))) / CICLOS * 1000, rss_, res
+
+
+# Duas medidas, e vale a MENOR.
+#
+# O que se quer medir e o custo de uma volta do laco, e uma maquina ocupada
+# so sabe empurrar esse numero para cima: a contencao acrescenta tempo, nunca
+# tira. Entao o minimo de duas amostras esta mais perto da verdade do que a
+# media, e nao acusa falso quando a suite inteira roda em paralelo — foi
+# assim que esta medida deu 6,00 ms numa rodada e 1,17 ms sozinha, dois
+# minutos depois, sem uma linha de codigo ter mudado.
+por_ciclo_ms, mrss, res4 = medir_custo()
+print("\n".join("   " + l for l in res4.stdout.splitlines()[:6]))
+if por_ciclo_ms is not None and por_ciclo_ms >= 4.0:
+    print(f"   ({por_ciclo_ms:.2f} ms na primeira medida — a maquina pode "
+          f"estar ocupada; medindo de novo)")
+    segunda, mrss2, res4b = medir_custo()
+    if segunda is not None:
+        por_ciclo_ms = min(por_ciclo_ms, segunda)
+        mrss = mrss2 or mrss
+        print(f"   (segunda medida: {segunda:.2f} ms; vale a menor)")
+if por_ciclo_ms is not None:
+    seg = por_ciclo_ms * CICLOS / 1000
     print(f"\n   {CICLOS} ciclos ociosos consumiram {seg*1000:.0f} ms de CPU")
     print(f"   -> {por_ciclo_ms:.2f} ms por ciclo (inclui o fork do sleep)")
     # o R1 e um MIPS de 1 GHz contra este x86; um fator 8 e conservador
@@ -349,8 +373,11 @@ if mst and mhz:
     # diferenca entre esperar num fifo e chamar `sleep` e de ~8 ms por ciclo,
     # e qualquer comando externo no caminho ocioso custa a mesma ordem — foi
     # exatamente assim que a consulta do Tidal a cada volta apareceu aqui,
-    # com 17,8 ms. Quatro milissegundos pegam isso com folga e nao quebram
-    # numa maquina ocupada, onde a mesma medicao ja deu 2,00 e 2,33.
+    # com 17,8 ms. Quatro milissegundos pegam isso com folga.
+    #
+    # Numa maquina ocupada a medida sobe: com a suite inteira rodando junto
+    # ela deu 6,00 ms, e 1,17 ms sozinha dois minutos depois. Por isso a
+    # medicao e repetida e vale a menor — contencao so acrescenta tempo.
     check("custo por ciclo abaixo de 4 ms (espera sem fork)",
           por_ciclo_ms < 4.0, f"{por_ciclo_ms:.2f} ms")
 if mrss:
@@ -485,6 +512,479 @@ check("e limpa a trava ao sair", "TRAVA=removida" in res6.stdout)
 check("continua vivo quando o shell que o iniciou termina",
       "DESTACADO=vivo" in res6.stdout,
       "morreu junto com o shell" if "DESTACADO=morto" in res6.stdout else "")
+
+
+print()
+print("=" * 74)
+print("8. pausar no meio da faixa nao a fecha, e o tempo contado e o do audio")
+print("=" * 74)
+# Dois relatos, uma causa so.
+#
+#   vi:        faixas subindo no instante em que comecavam, aparecendo como
+#              scrobble e como "scrobbling now" ao mesmo tempo.
+#   endgame4:  "musicas que eu sei que toquei nao aparecem; outras aparecem".
+#
+# O tempo ouvido vinha do ESPACO entre carimbos, e espaco nao e musica. Quem
+# pausa perde a faixa (o f1 fechava ali, com meia escuta, abaixo do minimo);
+# quem liga o aparelho com musica tocando ganha uma faixa que nao ouviu.
+#
+# Medido no R1 de verdade, com a pausa apertada na mao:
+#
+#     50s  pcm=1  rowid=261  arq=.../After Dark.flac    tocando
+#     50s  pcm=0  rowid=261  arq=.../After Dark.flac    PAUSADO
+#     29s  pcm=1  rowid=261  arq=.../After Dark.flac    voltou
+#
+# O pcm fecha, o ARQUIVO nao — e o rowid nao muda, porque retomar nao escreve
+# linha nenhuma no histórico. E so isso que distingue pausa de fim.
+#
+# Aqui o r1collect e trocado por um recado: `estado` responde o que estiver
+# escrito no arquivo de controle, e o resto passa direto para o de verdade.
+FALSO = r"""#!/bin/sh
+case "$1" in
+estado)  cat CTRL 2>/dev/null || { echo "pcm=0"; echo ""; } ;;
+tocando) sed -n 2p CTRL 2>/dev/null ;;
+*)       exec REAL "$@" ;;
+esac
+"""
+script7 = f"""
+pkill -f "{T}/r1scrobbled" 2>/dev/null || true
+sleep 1
+rm -rf {T}/pausa; mkdir -p {T}/pausa/scrobble {T}/pausa/tmp
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/pausa/scrobble/real
+chmod 755 {T}/pausa/scrobble/real
+cat > {T}/pausa/scrobble/r1collect <<'FIMFALSO'
+{FALSO.replace("CTRL", T + "/pausa/ctrl").replace("REAL", T + "/pausa/scrobble/real")}
+FIMFALSO
+chmod 755 {T}/pausa/scrobble/r1collect
+
+# O historico ja tem uma linha ANTES de o daemon subir, para a partida virar
+# marco zero e nao lote: o que interessa aqui e a faixa que vem depois.
+cp {r.to_posix_path(WORK)}/sim1.db {T}/pausa/banco.db
+printf 'pcm=0\\n\\n' > {T}/pausa/ctrl
+
+sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/pausa/scrobble#' \\
+    -e 's#^DB=.*#DB={T}/pausa/banco.db#' \\
+    -e 's#^MAIS=.*#MAIS={T}/pausa/nada.db#' \\
+    -e 's#^COPIA=.*#COPIA={T}/pausa/tmp/c.db#' \\
+    -e 's#^PARCIAL=.*#PARCIAL={T}/pausa/tmp/p.tsv#' \\
+    -e 's#^LOG=.*#LOG={T}/pausa/tmp/log#' \\
+    -e 's#^TICK=.*#TICK={T}/pausa/tmp/tick#' \\
+    -e 's#^TRAVA=.*#TRAVA={T}/pausa/tmp/rodando#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \\
+    -e 's#^QUIETOS=8#QUIETOS=3#' \\
+    {p} > {T}/pausa/rs
+chmod 755 {T}/pausa/rs
+
+busybox ash {T}/pausa/rs &
+PID=$!
+# Folga ate o daemon estar bem dentro do laco ocioso. O `-nt` do busybox
+# compara segundos inteiros: se a copia do banco cair no mesmo segundo em que
+# o daemon carimba a marca, a colheita so aconteceria na proxima escrita — e
+# nao ha proxima, entao o teste falharia por corrida e nao por defeito.
+sleep 8
+
+# A faixa 2 comeca a tocar: linha nova no banco E audio saindo.
+printf 'pcm=1\\n{T}/pausa/faixa.flac\\n' > {T}/pausa/ctrl
+cp {r.to_posix_path(WORK)}/sim2.db {T}/pausa/banco.db
+sleep 6
+
+# PAUSA: o pcm fecha, o arquivo continua aberto. Nada pode fechar a faixa.
+printf 'pcm=0\\n{T}/pausa/faixa.flac\\n' > {T}/pausa/ctrl
+sleep 6
+if [ -f {T}/pausa/scrobble/fila.tsv ]; then
+    N=$(grep -c "^t1" {T}/pausa/scrobble/fila.tsv)
+else
+    N=0
+fi
+echo "T1_NA_PAUSA=$N"
+
+# VOLTOU: continua contando de onde parou.
+printf 'pcm=1\\n{T}/pausa/faixa.flac\\n' > {T}/pausa/ctrl
+sleep 5
+
+# PAROU de verdade: o arquivo fecha junto. Agora sim.
+printf 'pcm=0\\n\\n' > {T}/pausa/ctrl
+sleep 4
+
+kill -TERM $PID 2>/dev/null
+sleep 2
+echo "=== FILA ==="
+cat {T}/pausa/scrobble/fila.tsv
+echo "=== LOG ==="
+cat {T}/pausa/tmp/log 2>/dev/null || true
+"""
+res7 = r.posix_script(script7, name="daemon-pausa", mutating=False, quiet=True,
+                      timeout=180)
+print("\n".join("   " + l for l in res7.stdout.splitlines()[:40]))
+
+check("a faixa foi colhida (sem isto o resto nao quer dizer nada)",
+      "1 nova(s), rowid ate 2" in res7.stdout,
+      "a colheita nao aconteceu")
+na_pausa = next((l.split("=", 1)[1].strip()
+                 for l in res7.stdout.splitlines()
+                 if l.strip().startswith("T1_NA_PAUSA=")), "?")
+check("durante a pausa a faixa NAO foi fechada", na_pausa == "0",
+      f"{na_pausa} marcador(es) t1 durante a pausa")
+
+fila7 = res7.stdout.split("=== FILA ===")[1].split("=== LOG ===")[0] \
+    if "=== FILA ===" in res7.stdout else ""
+t1s = [l.split("\t") for l in fila7.splitlines() if l.startswith("t1")]
+check("a faixa foi medida", bool(t1s), f"{len(t1s)} t1: {[x[1:] for x in t1s]}")
+if t1s:
+    # A medida sai em parcelas para um travamento nao levar tudo, e as
+    # parcelas do mesmo rowid SOMAM — e assim que o PC as le.
+    check("todas as parcelas sao da mesma faixa",
+          {x[1] for x in t1s} == {"2"}, str({x[1] for x in t1s}))
+    medido = sum(int(x[2]) for x in t1s)
+    # 6s tocando + 6s pausado + 5s tocando. O audio saiu por ~11s; o relogio
+    # de parede marcou ~17. Contar 17 seria contar a pausa como musica.
+    check("o tempo medido e o do audio, nao o do relogio",
+          5 <= medido <= 14, f"{medido}s medidos (parede: ~17s)")
+    # A incerteza nao e um numero fixo: e um intervalo do laco para cada
+    # fronteira que caiu entre duas olhadas. Aqui foram tres (a faixa
+    # comecando, o audio parando na pausa, o audio voltando) mais o fim, e
+    # o laco esta em 1s — entao ela tem de ser maior que uma sondagem so.
+    incerteza = max(int(x[3]) for x in t1s if len(x) > 3)
+    check("a incerteza vai junto e cresce com as pausas", incerteza >= 3,
+          f"{incerteza}s de incerteza para 3 fronteiras + o fim")
+check("o log conta que o audio voltou", "audio voltou apos" in res7.stdout,
+      " ".join(l for l in res7.stdout.splitlines()
+               if "voltou" in l)[:70] or "nao apareceu")
+
+
+print()
+print("=" * 74)
+print("9. subir com musica tocando: a faixa em curso NAO e lote atrasado")
+print("=" * 74)
+# Este e o defeito que a vi viu de frente. O daemon acordava, encontrava no
+# banco a linha da faixa que estava tocando NAQUELE instante, chamava aquilo
+# de "tocou sem ninguem olhando", dava credito integral e mandava na hora.
+# A pessoa via a mesma musica como scrobble e como "scrobbling now" —
+# porque ela estava mesmo tocando.
+script8 = f"""
+pkill -f "{T}/pausa/rs" 2>/dev/null || true
+sleep 1
+rm -rf {T}/subir; mkdir -p {T}/subir/scrobble {T}/subir/tmp
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/subir/scrobble/real
+chmod 755 {T}/subir/scrobble/real
+cat > {T}/subir/scrobble/r1collect <<'FIMFALSO'
+{FALSO.replace("CTRL", T + "/subir/ctrl").replace("REAL", T + "/subir/scrobble/real")}
+FIMFALSO
+chmod 755 {T}/subir/scrobble/r1collect
+
+# Quatro faixas no banco e o estado parado na primeira: tres atrasadas. Mas a
+# ultima delas esta tocando agora — ha audio saindo e arquivo local aberto.
+cp {r.to_posix_path(WORK)}/sim4.db {T}/subir/banco.db
+printf 'pcm=1\\n{T}/subir/faixa.flac\\n' > {T}/subir/ctrl
+mkdir -p {T}/subir/scrobble
+echo 1 > {T}/subir/scrobble/estado
+
+sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/subir/scrobble#' \\
+    -e 's#^DB=.*#DB={T}/subir/banco.db#' \\
+    -e 's#^MAIS=.*#MAIS={T}/subir/nada.db#' \\
+    -e 's#^COPIA=.*#COPIA={T}/subir/tmp/c.db#' \\
+    -e 's#^PARCIAL=.*#PARCIAL={T}/subir/tmp/p.tsv#' \\
+    -e 's#^LOG=.*#LOG={T}/subir/tmp/log#' \\
+    -e 's#^TICK=.*#TICK={T}/subir/tmp/tick#' \\
+    -e 's#^TRAVA=.*#TRAVA={T}/subir/tmp/rodando#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \\
+    {p} > {T}/subir/rs
+chmod 755 {T}/subir/rs
+
+busybox ash {T}/subir/rs &
+PID=$!
+sleep 5
+kill -TERM $PID 2>/dev/null
+sleep 2
+echo "=== FILA ==="
+cat {T}/subir/scrobble/fila.tsv
+echo "=== LOG ==="
+cat {T}/subir/tmp/log 2>/dev/null || true
+"""
+res8 = r.posix_script(script8, name="daemon-subir", mutating=False, quiet=True,
+                      timeout=120)
+print("\n".join("   " + l for l in res8.stdout.splitlines()[:30]))
+
+fila8 = res8.stdout.split("=== FILA ===")[1].split("=== LOG ===")[0] \
+    if "=== FILA ===" in res8.stdout else ""
+a1s = [l.split("\t") for l in fila8.splitlines() if l.startswith("a1")]
+check("o lote atrasado deixa a faixa em curso de fora",
+      len(a1s) == 1 and a1s[0][2] == "2",
+      f"a1 disse {a1s[0][2] if a1s else '?'} (as atrasadas de verdade sao 2 "
+      f"das 3 linhas novas)")
+check("as tres linhas foram para a fila do mesmo jeito",
+      len([l for l in fila8.splitlines() if l.startswith("p1")]) == 3,
+      f"{len([l for l in fila8.splitlines() if l.startswith('p1')])} p1")
+check("o log diz por que a ultima ficou de fora",
+      "faixa tocando agora" in res8.stdout,
+      " ".join(l for l in res8.stdout.splitlines()
+               if "tocando agora" in l)[:70] or "nao apareceu")
+# E ao ser fechada pelo TERM ela leva o tempo MEDIDO, nao a faixa inteira.
+t1s8 = [l.split("\t") for l in fila8.splitlines() if l.startswith("t1")]
+check("e ela e fechada com o pouco que deu para medir",
+      len(t1s8) == 1 and int(t1s8[0][2]) <= 15,
+      f"{t1s8[0][2] if t1s8 else '?'}s medidos")
+
+
+print()
+print("=" * 74)
+print("10. um travamento nao leva junto a medicao da faixa em curso")
+print("=" * 74)
+# Este aparelho reinicia sozinho — aconteceu duas vezes enquanto esta versao
+# era escrita. Num travamento nenhum trap roda, entao a medida guardada so na
+# memoria do daemon morre com ele: a faixa fica sem t1 e a conta volta a
+# deduzir do relogio, que e exatamente o que se quer evitar. Aconteceu de
+# verdade com a faixa 272 no R1, de 293s, que subiu como ouvida por inteiro
+# depois de um reinicio no meio dela.
+#
+# Por isso a medida sai em parcelas. Aqui o daemon leva um KILL — sem chance
+# de despedida, como num travamento — e o que ja foi ouvido tem de estar na
+# fila mesmo assim.
+script9 = f"""
+pkill -f "{T}/subir/rs" 2>/dev/null || true
+sleep 1
+rm -rf {T}/kill; mkdir -p {T}/kill/scrobble {T}/kill/tmp
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/kill/scrobble/real
+chmod 755 {T}/kill/scrobble/real
+cat > {T}/kill/scrobble/r1collect <<'FIMFALSO'
+{FALSO.replace("CTRL", T + "/kill/ctrl").replace("REAL", T + "/kill/scrobble/real")}
+FIMFALSO
+chmod 755 {T}/kill/scrobble/r1collect
+
+cp {r.to_posix_path(WORK)}/sim1.db {T}/kill/banco.db
+printf 'pcm=0\\n\\n' > {T}/kill/ctrl
+
+sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/kill/scrobble#' \\
+    -e 's#^DB=.*#DB={T}/kill/banco.db#' \\
+    -e 's#^MAIS=.*#MAIS={T}/kill/nada.db#' \\
+    -e 's#^COPIA=.*#COPIA={T}/kill/tmp/c.db#' \\
+    -e 's#^PARCIAL=.*#PARCIAL={T}/kill/tmp/p.tsv#' \\
+    -e 's#^LOG=.*#LOG={T}/kill/tmp/log#' \\
+    -e 's#^TICK=.*#TICK={T}/kill/tmp/tick#' \\
+    -e 's#^TRAVA=.*#TRAVA={T}/kill/tmp/rodando#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \\
+    -e 's#^QUIETOS=8#QUIETOS=3#' -e 's#^T1_PASSO=30#T1_PASSO=3#' \\
+    {p} > {T}/kill/rs
+chmod 755 {T}/kill/rs
+
+busybox ash {T}/kill/rs &
+PID=$!
+sleep 8
+printf 'pcm=1\\n{T}/kill/faixa.flac\\n' > {T}/kill/ctrl
+cp {r.to_posix_path(WORK)}/sim2.db {T}/kill/banco.db
+sleep 12
+
+# KILL, nao TERM: nada roda na saida, como num travamento de verdade.
+kill -KILL $PID 2>/dev/null
+sleep 1
+echo "=== FILA APOS O KILL ==="
+cat {T}/kill/scrobble/fila.tsv
+echo "=== PONTO DE CONTROLE ==="
+cat {T}/kill/scrobble/medindo 2>/dev/null || echo "(nao existe)"
+
+# A partida seguinte tem de transformar isso numa faixa fechada.
+printf 'pcm=0\\n\\n' > {T}/kill/ctrl
+busybox ash {T}/kill/rs &
+PID2=$!
+sleep 5
+kill -TERM $PID2 2>/dev/null
+sleep 2
+echo "=== FILA APOS REINICIAR ==="
+cat {T}/kill/scrobble/fila.tsv
+echo "=== PONTO DE CONTROLE DEPOIS ==="
+cat {T}/kill/scrobble/medindo 2>/dev/null || echo "(apagado)"
+echo "=== LOG ==="
+cat {T}/kill/tmp/log 2>/dev/null || true
+"""
+res9 = r.posix_script(script9, name="daemon-kill", mutating=False, quiet=True,
+                      timeout=120)
+print("\n".join("   " + l for l in res9.stdout.splitlines()[:25]))
+
+def entre(marca, fim="==="):
+    if marca not in res9.stdout:
+        return ""
+    return res9.stdout.split(marca)[1].split(fim)[0]
+
+
+check("a faixa foi colhida", "1 nova(s), rowid ate 2" in res9.stdout,
+      "a colheita nao aconteceu")
+check("o daemon morreu sem se despedir",
+      "faixa 2 fechada" not in entre("=== FILA APOS O KILL ==="),
+      "fechou direitinho — o KILL nao pegou")
+
+apos_kill = entre("=== FILA APOS O KILL ===")
+check("a fila nao ganhou linha nenhuma de medicao no meio da faixa",
+      not [l for l in apos_kill.splitlines() if l.startswith("t1")],
+      "a fila cresceria dez vezes mais rapido, e ela nunca e podada")
+
+ponto = entre("=== PONTO DE CONTROLE ===").strip()
+check("mas a medicao estava salva em disco", ponto.startswith("2 "),
+      ponto or "(vazio)")
+if ponto.startswith("2 "):
+    check("e ela vale o que de fato tocou",
+          6 <= int(ponto.split()[1]) <= 12,
+          f"{ponto.split()[1]}s de ~11s tocados")
+
+apos_reinicio = entre("=== FILA APOS REINICIAR ===")
+t1s9 = [l.split("\t") for l in apos_reinicio.splitlines()
+        if l.startswith("t1")]
+check("a partida seguinte transformou isso em faixa fechada",
+      len(t1s9) == 1 and t1s9[0][1] == "2" and t1s9[0][-1] == "fim",
+      str([x[1:] for x in t1s9]))
+if t1s9:
+    check("com o mesmo tempo que estava salvo",
+          t1s9[0][2] == ponto.split()[1] if ponto.split() else False,
+          f"fila={t1s9[0][2]}s ponto={ponto}")
+check("e o ponto de controle foi apagado",
+      "(apagado)" in res9.stdout,
+      entre("=== PONTO DE CONTROLE DEPOIS ===").strip())
+check("o log conta a recuperacao",
+      "medicao interrompida recuperada" in res9.stdout,
+      " ".join(l for l in res9.stdout.splitlines()
+               if "recuperada" in l)[:70] or "nao apareceu")
+
+
+print()
+print("=" * 74)
+print("11. reiniciar no meio de uma faixa nao larga o resto dela sem medir")
+print("=" * 74)
+# Retomar nao escreve linha no historico, entao um daemon que sobe com musica
+# tocando e o banco ja todo anotado nao ve nada a fazer — e o resto da faixa
+# fica sem ninguem contando.
+#
+# Visto no R1: a faixa 282 tocou 39s, ficou 14 minutos pausada, voltou e tocou
+# mais 82, e foi registrada com os 34s que o daemon ANTERIOR tinha medido. Num
+# aparelho que trava sozinho — este trava — isso nao e caso raro, e o relato
+# do "algumas musicas nao aparecem" mora exatamente aqui.
+script10 = f"""
+pkill -f "{T}/kill/rs" 2>/dev/null || true
+sleep 1
+rm -rf {T}/retomar; mkdir -p {T}/retomar/scrobble {T}/retomar/tmp
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/retomar/scrobble/real
+chmod 755 {T}/retomar/scrobble/real
+cat > {T}/retomar/scrobble/r1collect <<'FIMFALSO'
+{FALSO.replace("CTRL", T + "/retomar/ctrl")
+      .replace("REAL", T + "/retomar/scrobble/real")}
+FIMFALSO
+chmod 755 {T}/retomar/scrobble/r1collect
+
+# O banco JA esta todo anotado — nada atrasado — e ha musica tocando.
+cp {r.to_posix_path(WORK)}/sim2.db {T}/retomar/banco.db
+echo 2 > {T}/retomar/scrobble/estado
+printf 'pcm=1\\n{T}/retomar/faixa.flac\\n' > {T}/retomar/ctrl
+
+sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/retomar/scrobble#' \\
+    -e 's#^DB=.*#DB={T}/retomar/banco.db#' \\
+    -e 's#^MAIS=.*#MAIS={T}/retomar/nada.db#' \\
+    -e 's#^COPIA=.*#COPIA={T}/retomar/tmp/c.db#' \\
+    -e 's#^PARCIAL=.*#PARCIAL={T}/retomar/tmp/p.tsv#' \\
+    -e 's#^LOG=.*#LOG={T}/retomar/tmp/log#' \\
+    -e 's#^TICK=.*#TICK={T}/retomar/tmp/tick#' \\
+    -e 's#^TRAVA=.*#TRAVA={T}/retomar/tmp/rodando#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \\
+    {p} > {T}/retomar/rs
+chmod 755 {T}/retomar/rs
+
+busybox ash {T}/retomar/rs &
+PID=$!
+sleep 10
+kill -TERM $PID 2>/dev/null
+sleep 2
+echo "=== FILA ==="
+cat {T}/retomar/scrobble/fila.tsv
+echo "=== LOG ==="
+cat {T}/retomar/tmp/log 2>/dev/null || true
+"""
+res10 = r.posix_script(script10, name="daemon-retomar", mutating=False,
+                       quiet=True, timeout=120)
+print("\n".join("   " + l for l in res10.stdout.splitlines()[:20]))
+
+fila10 = res10.stdout.split("=== FILA ===")[1].split("=== LOG ===")[0] \
+    if "=== FILA ===" in res10.stdout else ""
+check("o daemon adotou a faixa que ja estava tocando",
+      "ja estava tocando na partida" in res10.stdout,
+      " ".join(l for l in res10.stdout.splitlines()
+               if "ja estava tocando" in l)[:70] or "nao adotou")
+t1s10 = [l.split("\t") for l in fila10.splitlines() if l.startswith("t1")]
+check("e mediu o resto dela", len(t1s10) == 1 and t1s10[0][1] == "2",
+      str([x[1:] for x in t1s10]))
+if t1s10:
+    check("com o tempo que tocou depois da partida",
+          5 <= int(t1s10[0][2]) <= 14, f"{t1s10[0][2]}s de ~10s")
+check("e NAO inventou lote atrasado nenhum",
+      not [l for l in fila10.splitlines() if l.startswith("a1")],
+      "apareceu a1 — a faixa viraria passado com credito integral")
+check("nem repetiu a linha da faixa",
+      not [l for l in fila10.splitlines() if l.startswith("p1")],
+      "repetiu o p1 de uma faixa que ja estava na fila")
+
+
+print()
+print("=" * 74)
+print("12. o awk que enxuga a fila e RODADO, nao so lido")
+print("=" * 74)
+# `limpar_fila` monta um awk e manda como TEXTO para o shell do aparelho.
+# Um erro nele nao levanta excecao nenhuma no PC: a fila simplesmente sai
+# errada, e so quem abrisse o arquivo no aparelho perceberia. Entao o awk e
+# extraido do comando e executado de verdade, no busybox, que e o mesmo awk
+# que vai roda-lo la.
+import re as _re                                          # noqa: E402
+from r1lastfm import aparelho as AP                       # noqa: E402
+
+
+class _AdbFalso:
+    def __init__(self):
+        self.comandos = []
+
+    def shell(self, cmd, **kw):
+        self.comandos.append(cmd)
+        return type("R", (), {"stdout": "", "stderr": "", "ok": True})()
+
+
+_adbq = _AdbFalso()
+AP.limpar_fila(_adbq, Log(os.path.join(WORK, "t_daemon.log")), {2, 3})
+_cmd = next((c for c in _adbq.comandos if "awk" in c), "")
+check("a limpeza monta um comando com awk", bool(_cmd), _cmd[:60])
+
+_trecho = _re.search(r"awk -F.*?fila\.tsv\.bak", _cmd)
+if _trecho:
+    _fila_falsa = "\n".join([
+        "b1\t1000",
+        "p1\t1\t1010\tA\tFica\tAlb\t\t200\t2020\ta:x.flac\t",
+        "t1\t1\t190\t15\tfim",
+        "p1\t2\t1210\tB\tSai\tAlb\t\t200\t2020\ta:y.flac\t",
+        "t1\t2\t195\t15\tfim",
+        "p1\t3\t1410\tC\tSai2\tAlb\t\t200\t2020\ta:z.flac\t",
+        "t1\t3\t198\t15\tfim",
+        "f1\t1610",
+        "",
+    ])
+    _ent = os.path.join(WORK, "limpafila.tsv")
+    with open(_ent, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(_fila_falsa)
+    # O awk vai para um arquivo antes de rodar: passado na linha de comando,
+    # o wsl.exe substitui o $1 e o $2 do programa antes de o shell ver, e o
+    # awk recebe um programa sem campo nenhum — que e justamente o modo de
+    # este teste passar sem testar nada.
+    _prog = _trecho.group(0).replace("fila.tsv.bak", r.to_posix_path(_ent))
+    _sh_local = os.path.join(WORK, "limpafila.sh")
+    with open(_sh_local, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("#!/bin/sh\nbusybox " + _prog + "\n")
+    _res = r.posix(f"sh {r.to_posix_path(_sh_local)}", mutating=False,
+                   quiet=True)
+    _linhas = [l for l in _res.stdout.splitlines() if "\t" in l]
+    _tipos = [(l.split("\t")[0], l.split("\t")[1]) for l in _linhas]
+    check("as faixas ja enviadas sairam",
+          ("p1", "2") not in _tipos and ("p1", "3") not in _tipos, str(_tipos))
+    check("e as MEDICOES delas sairam junto",
+          ("t1", "2") not in _tipos and ("t1", "3") not in _tipos,
+          "sem isto a fila cresceria na propria limpeza: " + str(_tipos))
+    check("a faixa nao enviada ficou, com a medicao dela",
+          ("p1", "1") in _tipos and ("t1", "1") in _tipos, str(_tipos))
+    check("e os marcadores de sessao ficaram",
+          ("b1", "1000") in _tipos and ("f1", "1610") in _tipos, str(_tipos))
+else:
+    check("achei o awk dentro do comando", False, _cmd[:80])
 
 
 print()
