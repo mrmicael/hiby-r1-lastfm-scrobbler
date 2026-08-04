@@ -65,10 +65,10 @@ LANCADOR = "/usr/bin/hiby_player.sh"
 
 # Sobe a cada mudança que valha reinstalar no aparelho. A tela compara com o
 # que está gravado lá e só oferece a atualização quando há diferença.
-VERSAO = 12
+VERSAO = 13
 # As versões que existem. O que cada uma trouxe está no catálogo de textos,
 # sob "novidade.<n>", porque isso aparece na tela e tem de estar traduzido.
-NOVIDADES = (12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+NOVIDADES = (13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
 
 
 def novidade(versao: int) -> str:
@@ -192,6 +192,17 @@ def situacao(adb: Adb) -> Situacao:
         # tentando criar a pasta e escrever nela.
         f"for c in {' '.join(CARTOES)}; do "
         f"  [ -d \"$c\" ] || continue; "
+        # E há mesmo um cartão montado aí? O ponto de montagem continua
+        # existindo com o slot vazio — é um diretório comum na memória
+        # interna, e ele passa na prova de escrita como qualquer outro. Sem
+        # esta pergunta a tela dizia "planilha no cartão" apontando para a
+        # memória interna, e quando o cartão voltasse e montasse por cima, os
+        # arquivos sumiam de vista. Se o /proc/mounts não der para ler, a
+        # pergunta é pulada: recusar o cartão de quem tem é pior.
+        f"  if [ -r /proc/mounts ]; then "
+        f"    r=$(cd \"$c\" 2>/dev/null && pwd -P); "
+        f"    grep -q \" $r \" /proc/mounts || continue; "
+        f"  fi; "
         # A prova de escrita é um arquivo na RAIZ do cartão, criado e apagado
         # na mesma linha. Nada de `mkdir` da nossa pasta: esta consulta roda
         # antes de qualquer instalação, e uma consulta de estado não pode

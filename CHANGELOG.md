@@ -1,5 +1,41 @@
 # Changes since the last release
 
+## Device version 13 — the first track of an album was being lost
+
+> *"any time I start an album, the first song never gets scrobbled. It's
+> always the following song that gets logged. It does show up on scrobbling
+> now."*
+
+Reported with screenshots, and reproduced exactly.
+
+The collector drops to a slow rhythm when the device is idle, so starting an
+album could put **two rows in the player's database before its first look**.
+Both then carried the same timestamp — the moment of that look — so the gap
+between them was zero, and everything but the last row was thrown away as
+"heard nothing". The now-playing update does not depend on any of that, which
+is why the track appeared on the profile as *scrobbling now* and then never
+went up.
+
+Rows that were not seen starting are the same situation as tracks played while
+the collector was not running, and there is already a marker for that: the
+times are reconstructed backwards from each track's own duration. Only the
+last row of a harvest is the one actually playing, and that one is measured as
+usual.
+
+The old behaviour is now pinned by a test, so it cannot come back unnoticed.
+
+### An empty mount point is not a memory card
+
+Found while chasing something else: the card slot's mount point still exists
+when there is no card in it — it is an ordinary writable directory in internal
+memory, and it passed the write test like any other. The collector announced
+*"log and spreadsheet on the card"* with an empty slot and wrote both to
+internal memory, where they would become invisible the moment a card was
+inserted and mounted over them. It now requires a filesystem to actually be
+mounted there.
+
+---
+
 Three device versions in one drop — **10** (the stricter listening rule),
 **11** (the measurement rewrite) and **12** (finding the player's database) —
 plus installer fixes that need no device update. Update the device from

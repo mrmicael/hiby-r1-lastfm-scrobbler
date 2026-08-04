@@ -329,6 +329,51 @@ check("faixa velha sem fecho nao fica 'tocando' para sempre",
 
 print()
 print("=" * 74)
+print("6c. duas faixas numa colheita so: a primeira NAO pode sair com zero")
+print("=" * 74)
+# Relato da vi: "a primeira faixa de qualquer album nunca sobe, sobe a
+# seguinte; e ela aparece no scrobbling now".
+#
+# Com o aparelho ocioso o laco cai para 60s, entao comecar um album pode por
+# duas linhas no banco antes da primeira olhada. Todas recebem o mesmo
+# carimbo — o da colheita —, o espaco entre elas da ZERO, e todas menos a
+# ultima eram descartadas por "nao ouviu nada". O tocando agora nao depende
+# disso, e por isso a faixa aparecia la e morria na hora de subir.
+#
+# A correcao: as anteriores a ultima nao foram vistas comecar, que e a mesma
+# situacao do lote atrasado — entao vao com a1 e o PC reconstroi as horas
+# para tras pela duracao de cada uma.
+COLHEITA = AGORA - 700
+fila = (f"b1\t{COLHEITA - 60}\n"
+        + f"a1\t{COLHEITA}\t1\n"                 # a primeira, reconstruida
+        + p1(95, COLHEITA, "Primeira do album", 240) + "\n"
+        + p1(96, COLHEITA, "Segunda", 240) + "\n"   # mesmo carimbo, de proposito
+        + t1(96, 235) + "\n")
+r = rodar(fila, "colheita2")
+pri = r["Primeira do album"]
+check("a primeira do album nao sai com zero",
+      pri["seconds_heard"] != "0", f"{pri['seconds_heard']}s de 240s")
+check("e ela sobe", pri["status"] == "pending",
+      f"{pri['seconds_heard']}s -> {pri['status']}")
+check("a segunda continua subindo pelo tempo medido",
+      r["Segunda"]["status"] == "pending",
+      f"{r['Segunda']['seconds_heard']}s -> {r['Segunda']['status']}")
+check("e as duas nao levam a MESMA hora",
+      pri["started_at_epoch"] != r["Segunda"]["started_at_epoch"],
+      f"{pri['started_at_epoch']} vs {r['Segunda']['started_at_epoch']}")
+
+# Sem o a1 — como era antes — a primeira sai com zero e nao sobe. Este e o
+# defeito, e fica aqui escrito para nao voltar sem alguem perceber.
+fila = (f"b1\t{COLHEITA - 60}\n"
+        + p1(97, COLHEITA, "Sem o a1", 240) + "\n"
+        + p1(98, COLHEITA, "Seguinte", 240) + "\n" + t1(98, 235) + "\n")
+r = rodar(fila, "colheita_sem_a1")
+check("sem o a1, a primeira sairia com zero (o defeito relatado)",
+      r["Sem o a1"]["seconds_heard"] == "0",
+      f"{r['Sem o a1']['seconds_heard']}s -> {r['Sem o a1']['status']}")
+
+print()
+print("=" * 74)
 print("7. as duas implementacoes tem de CONCORDAR sobre o tempo medido")
 print("=" * 74)
 # O CSV do cartao sai do C e o que sobe ao Last.fm passa pelo Python. Se as

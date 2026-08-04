@@ -1400,6 +1400,30 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.13": {
+        "en": "the first track of an album is no longer lost. Starting an "
+              "album could put two rows in the player's database before the "
+              "collector's first look — it goes to a slow rhythm when the "
+              "device is idle — and both got the same timestamp, so the gap "
+              "between them was zero and everything but the last one was "
+              "thrown away as \"heard nothing\". It showed up as \"scrobbling "
+              "now\" and then never went up, which is exactly how it was "
+              "reported. Also: an empty mount point is no longer mistaken for "
+              "a memory card, so the log and the spreadsheet are never "
+              "written where they would vanish from sight the moment a card "
+              "is inserted",
+        "pt": "a primeira faixa de um álbum deixa de se perder. Começar um "
+              "álbum podia pôr duas linhas no banco do player antes da "
+              "primeira olhada do coletor — ele cai para um ritmo lento com o "
+              "aparelho ocioso —, e as duas levavam o mesmo carimbo de hora: "
+              "o espaço entre elas dava zero e tudo menos a última era "
+              "descartado como \"não ouviu nada\". Ela aparecia no \"ouvindo "
+              "agora\" e nunca subia, que foi exatamente como o problema foi "
+              "relatado. Também: um ponto de montagem vazio deixa de ser "
+              "confundido com cartão de memória, então o registro e a "
+              "planilha nunca são gravados onde sumiriam de vista assim que "
+              "um cartão fosse posto",
+    },
     "novidade.12": {
         "en": "the collector now finds the player's music database wherever it "
               "is. The player can be told to keep it on the memory card "

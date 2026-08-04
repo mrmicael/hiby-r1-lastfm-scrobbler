@@ -1096,6 +1096,73 @@ check("o log explica a troca",
 
 print()
 print("=" * 74)
+print("15. ponto de montagem vazio NAO e um cartao de memoria")
+print("=" * 74)
+# Achado investigando os travamentos: o cartao do R1 tinha caido do
+# barramento, e mesmo assim o daemon anunciava
+#
+#     registro e planilha no cartao: /usr/data/mnt/sd_0/r1lastfm
+#
+# porque o ponto de montagem continua existindo com o slot vazio — e um
+# diretorio comum na memoria interna, e passa na prova de escrita como
+# qualquer outro. O estrago nao e so a mensagem errada: quando o cartao
+# volta e monta por cima, os arquivos gravados ali ficam invisiveis, e para
+# quem usa a planilha simplesmente sumiu.
+script13 = f"""
+pkill -f "{T}/troca/rs" 2>/dev/null || true
+sleep 1
+rm -rf {T}/semsd; mkdir -p {T}/semsd/scrobble {T}/semsd/tmp {T}/semsd/pontovazio
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/semsd/scrobble/r1collect
+chmod 755 {T}/semsd/scrobble/r1collect
+cp {r.to_posix_path(WORK)}/sim1.db {T}/semsd/banco.db
+
+# O "cartao" e um diretorio gravavel que NAO e ponto de montagem nenhum —
+# exatamente o que sobra no R1 quando o cartao cai do barramento.
+sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/semsd/scrobble#' \\
+    -e 's#^DB_INTERNO=.*#DB_INTERNO={T}/semsd/banco.db#' \\
+    -e 's#^DB=/usr/data.*#DB={T}/semsd/banco.db#' \\
+    -e 's#^MAIS=.*#MAIS={T}/semsd/nada.db#' \\
+    -e 's#^CARTOES=.*#CARTOES="{T}/semsd/pontovazio"#' \\
+    -e 's#^COPIA=.*#COPIA={T}/semsd/tmp/c.db#' \\
+    -e 's#^PARCIAL=.*#PARCIAL={T}/semsd/tmp/p.tsv#' \\
+    -e 's#^LOG=.*#LOG={T}/semsd/tmp/log#' \\
+    -e 's#^TICK=.*#TICK={T}/semsd/tmp/tick#' \\
+    -e 's#^TRAVA=.*#TRAVA={T}/semsd/tmp/rodando#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \\
+    {p} > {T}/semsd/rs
+chmod 755 {T}/semsd/rs
+
+busybox ash {T}/semsd/rs &
+PID=$!
+sleep 6
+kill -TERM $PID 2>/dev/null
+sleep 2
+echo "=== LOG ==="
+cat {T}/semsd/tmp/log 2>/dev/null || true
+echo "=== SUJOU O PONTO DE MONTAGEM? ==="
+# Contando, e nao listando: `ls -A` numa pasta vazia nao imprime nada E sai
+# com sucesso, entao um `|| echo vazio` nunca dispara e a leitura fica ambigua.
+echo "ENTRADAS=$(ls -A {T}/semsd/pontovazio/ 2>/dev/null | wc -l)"
+"""
+res13 = r.posix_script(script13, name="daemon-sem-sd", mutating=False,
+                       quiet=True, timeout=120)
+print("\n".join("   " + l for l in res13.stdout.splitlines()[:16]))
+
+check("nao inventa um cartao onde nao ha nada montado",
+      "sem cartao gravavel" in res13.stdout,
+      " ".join(l for l in res13.stdout.splitlines()
+               if "cartao" in l)[:90] or "nao disse nada sobre cartao")
+check("e nao anuncia planilha no cartao",
+      "planilha no cartao" not in res13.stdout,
+      "anunciou uma planilha que ficaria escondida quando o cartao voltasse")
+entradas = next((l.split("=", 1)[1].strip()
+                 for l in res13.stdout.splitlines()
+                 if l.strip().startswith("ENTRADAS=")), "?")
+check("nem deixa pasta nossa no ponto de montagem vazio",
+      entradas == "0", f"{entradas} entrada(s) criadas onde nao ha cartao")
+
+print()
+print("=" * 74)
 print("12. o awk que enxuga a fila e RODADO, nao so lido")
 print("=" * 74)
 # `limpar_fila` monta um awk e manda como TEXTO para o shell do aparelho.

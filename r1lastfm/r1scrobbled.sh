@@ -336,9 +336,32 @@ fi
 # É refeito de tempos em tempos, e não só na partida: o cartão pode ser posto
 # depois de ligar o aparelho, e nesse caso o registro passa a existir a partir
 # dali em vez de nunca. Custa um mkdir e um touch, uma vez a cada meia hora.
+# Há um sistema de arquivos montado neste caminho?
+#
+# O ponto de montagem do cartão continua existindo quando não há cartão: é um
+# diretório comum na memória interna, e ele passa no teste de escrita como
+# qualquer outro. Sem esta pergunta o daemon anunciava "registro e planilha no
+# cartao" com o slot vazio, gravava tudo na memória interna e, quando o cartão
+# voltasse e montasse por cima, esses arquivos ficavam invisíveis — para quem
+# usa, a planilha simplesmente sumia.
+#
+# Quando o /proc/mounts não puder ser lido, responde SIM: valia antes e vale
+# de novo, porque recusar o cartão de quem tem um é pior do que aceitar o de
+# quem não tem.
+esta_montado() {
+    [ -r /proc/mounts ] || return 0
+    _real=$(cd "$1" 2>/dev/null && pwd -P) || return 1
+    [ -n "$_real" ] || return 1
+    while read -r _d _p _resto; do
+        [ "$_p" = "$_real" ] && return 0
+    done < /proc/mounts
+    return 1
+}
+
 achar_cartao() {
     for c in $CARTOES; do
         [ -d "$c" ] || continue
+        esta_montado "$c" || continue
         if mkdir -p "$c/$PASTA_SD" 2>/dev/null &&
            : > "$c/$PASTA_SD/.escrita" 2>/dev/null; then
             rm -f "$c/$PASTA_SD/.escrita"
@@ -1480,6 +1503,31 @@ FIM_ESTADO
                     # A faixa que estava aberta acabou: a linha nova é a
                     # prova de que outra começou. Fecha com o que foi medido.
                     fechar_faixa_atual
+
+                    # Mais de uma linha nova na MESMA colheita.
+                    #
+                    # Acontece porque o laço cai para 60 s com o aparelho
+                    # ocioso: começar um álbum pode pôr duas faixas no banco
+                    # antes da primeira olhada. Todas recebem o mesmo carimbo
+                    # — o desta colheita —, então o espaço entre elas dá zero
+                    # e todas menos a última saíam com "não ouviu nada".
+                    #
+                    # Foi exatamente o relato: "a primeira faixa de qualquer
+                    # álbum nunca sobe, sobe a seguinte; e ela aparece no
+                    # scrobbling now". A primeira aparecia no tocando agora
+                    # (que não depende disto) e morria na hora de subir.
+                    #
+                    # As anteriores à última não foram vistas começar, que é a
+                    # mesma situação do lote atrasado — e o a1 já manda o PC
+                    # reconstruir as horas para trás pela duração de cada uma.
+                    # Só a última é a que está tocando agora, e essa é medida.
+                    if [ "$novas" -gt 1 ]; then
+                        printf 'a1\t%s\t%s\n' "$(date +%s)" "$((novas - 1))" \
+                            >> "$FILA"
+                        registrar "$novas linhas numa colheita so; as" \
+                                  "$((novas - 1)) primeiras vao com hora" \
+                                  "reconstruida"
+                    fi
                     cat "$PARCIAL" >> "$FILA"
                     echo "$maior" > "$ESTADO"
                     # A última linha desta colheita é a faixa que ACABOU DE
