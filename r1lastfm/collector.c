@@ -601,6 +601,15 @@ static int cmd_buscar(const char *arq_banco, const char *caminho)
 /* que arquivo o player está tocando agora                             */
 /* ------------------------------------------------------------------ */
 
+/* O caminho termina com este sufixo? Comparação sem distinguir maiúsculas,
+ * como a de e_audio: o cartão é vfat, e lá o mesmo arquivo pode aparecer com
+ * outra caixa dependendo de como foi criado. */
+static int termina_em(const char *s, const char *sufixo)
+{
+    size_t n = strlen(s), k = strlen(sufixo);
+    return n >= k && !strcasecmp(s + (n - k), sufixo);
+}
+
 static int e_audio(const char *s)
 {
     static const char *ext[] = {".flac", ".mp3", ".wav", ".m4a", ".ape",
@@ -777,6 +786,7 @@ static int cmd_estado(void)
     struct dirent *e;
     int pcm = 0;
     char local[1024] = "";
+    char banco[1024] = "";
     /* A mesma reserva do `tocando`: se o player mudar de nome numa versão
      * futura do firmware, qualquer processo com um arquivo de áudio aberto
      * ainda serve. Sem isto o "tocando agora" pararia de funcionar numa
@@ -803,6 +813,21 @@ static int cmd_estado(void)
             if (k <= 0) continue;
             alvo[k] = 0;
             if (player && strstr(alvo, "/dev/snd/pcm")) pcm = 1;
+            else if (player && !banco[0] &&
+                     termina_em(alvo, "usrlocal_media.db")) {
+                /* Qual banco de mídia o player mantém aberto.
+                 *
+                 * Ele tem dois lugares possíveis — a memória interna e o
+                 * cartão —, e quem escolhe é uma opção da tela do aparelho.
+                 * Essa opção não é legível de fora: o único config.json do
+                 * sistema está no squashfs somente-leitura e traz o valor de
+                 * fábrica, que num R1 real diz "cartão" com o player usando o
+                 * banco interno. Ler a opção daria a resposta errada.
+                 *
+                 * O arquivo que ele tem ABERTO não é dedução nem heurística:
+                 * é o banco que está sendo usado, agora, por quem o usa. */
+                snprintf(banco, sizeof(banco), "%s", alvo);
+            }
             else if (e_audio(alvo)) {
                 if (player) {
                     if (!local[0]) snprintf(local, sizeof(local), "%s", alvo);
@@ -812,12 +837,16 @@ static int cmd_estado(void)
             }
         }
         closedir(fd);
-        if (pcm && local[0]) break;
+        if (pcm && local[0] && banco[0]) break;
     }
     closedir(d);
     if (!local[0] && reserva[0]) snprintf(local, sizeof(local), "%s", reserva);
     printf("pcm=%d\n", pcm);
     escreve_linha(local, strlen(local));
+    /* Terceira linha, opcional: o banco de mídia que o player tem aberto.
+     * Vem depois das duas antigas de propósito — um daemon anterior a isto
+     * lê as duas primeiras e ignora o resto sem se incomodar. */
+    escreve_linha(banco, strlen(banco));
     return 0;
 }
 

@@ -372,20 +372,63 @@ achar_cartao() {
 achar_banco() {
     _novo=""
     _quando=0
-    for _c in $DB_INTERNO; do
-        [ -f "$_c" ] || continue
-        _t=$(data_do_arquivo "$_c")
-        if [ "$_t" -gt "$_quando" ] 2>/dev/null; then
-            _quando=$_t; _novo=$_c
-        fi
-    done
-    for _c in $CARTOES; do
-        [ -f "$_c/$DB_NO_CARTAO" ] || continue
-        _t=$(data_do_arquivo "$_c/$DB_NO_CARTAO")
-        if [ "$_t" -gt "$_quando" ] 2>/dev/null; then
-            _quando=$_t; _novo=$_c/$DB_NO_CARTAO
-        fi
-    done
+
+    # Primeiro, a resposta direta: qual banco o PLAYER tem aberto.
+    #
+    # Isto não é dedução — é o arquivo que está sendo usado, agora, por quem o
+    # usa. Foi a resposta a uma objeção justa: "não seria melhor ler a opção
+    # `tf_music_db_enable` e ter a certeza, em vez de comparar horas?".
+    #
+    # Ler a opção seria melhor se desse. Não dá: o único config.json do
+    # sistema está no squashfs somente-leitura, é o valor de fábrica, e num R1
+    # real ele diz 1 (cartão) com o player usando o banco interno. Não existe
+    # cópia gravável dele em lugar nenhum da /usr/data. Ler aquilo daria a
+    # resposta errada com toda a confiança do mundo.
+    #
+    # O descritor aberto responde a mesma pergunta sem intermediário. A
+    # comparação por hora de modificação continua abaixo, para quando o player
+    # não estiver rodando (o daemon sobe antes dele, no boot) ou para um
+    # r1collect anterior a esta versão, que não conhece a terceira linha.
+    _p=""; _l=""; _b=""
+    { read -r _p; read -r _l; read -r _b; } <<FIM_BANCO
+$("$COLETOR" estado 2>/dev/null)
+FIM_BANCO
+    if [ -n "$_b" ] && [ -f "$_b" ]; then
+        _novo=$_b
+    fi
+    # O player não respondeu — no boot ele sobe depois do daemon. Se já havia
+    # um banco anotado e ele continua existindo, fica com ele.
+    #
+    # Isto evita uma troca inventada: sem o player para dizer, a hora de
+    # modificação pode apontar para o outro banco só porque nada foi tocado
+    # ainda desde a última sessão, e trocar recomeça o marcador à toa. O que
+    # valia ontem continua valendo até alguém provar o contrário.
+    if [ -z "$_novo" ]; then
+        _guardado=$(cat "$BANCO_ATUAL" 2>/dev/null)
+        [ -n "$_guardado" ] && [ -f "$_guardado" ] && _novo=$_guardado
+    fi
+
+    # Nem o player, nem nada anotado: aí sim a hora de modificação decide.
+    # É a reserva, e tem um ponto cego que o descritor aberto não tem — logo
+    # depois de a opção mudar, e antes de a primeira faixa tocar, o banco
+    # antigo ainda é o mais recente. Serve para a primeira instalação e para
+    # um r1collect anterior a esta versão.
+    if [ -z "$_novo" ]; then
+        for _c in $DB_INTERNO; do
+            [ -f "$_c" ] || continue
+            _t=$(data_do_arquivo "$_c")
+            if [ "$_t" -gt "$_quando" ] 2>/dev/null; then
+                _quando=$_t; _novo=$_c
+            fi
+        done
+        for _c in $CARTOES; do
+            [ -f "$_c/$DB_NO_CARTAO" ] || continue
+            _t=$(data_do_arquivo "$_c/$DB_NO_CARTAO")
+            if [ "$_t" -gt "$_quando" ] 2>/dev/null; then
+                _quando=$_t; _novo=$_c/$DB_NO_CARTAO
+            fi
+        done
+    fi
     # Nenhum dos dois existe: mantém o que estava, para as mensagens de erro
     # continuarem apontando para algum lugar.
     [ -n "$_novo" ] || return 1

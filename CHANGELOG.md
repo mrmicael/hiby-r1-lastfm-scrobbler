@@ -28,11 +28,27 @@ Both paths are inside `/usr/bin/hiby_player` itself:
 /data/mnt/sd_0/.temp/usrlocal_media.db    setting on
 ```
 
-The collector now looks in both and follows whichever the player is actually
-writing, decided by modification time rather than by reading the setting —
-`/usr/resource/config.json` only holds the factory default, and on a device
-where it says `1` the internal database was being updated normally, so
-trusting it would have been worse than useless.
+The collector now asks the most direct question there is: **which database
+file does the player have open?** That is read from its open file descriptors,
+so it is not a guess, a heuristic or a timestamp — it is the file in use,
+right now, by the process using it.
+
+The obvious alternative — read the setting — was raised and is worth
+recording, because the answer is not what it looks like.
+`tf_music_db_enable` in `/usr/resource/config.json` only enables the *menu
+entry*; it does not hold the value. That file is the only `config.json` on the
+device, it lives on the read-only squashfs, and on a real R1 it says `1` while
+the player is using the internal database. The effective value is a single
+byte inside `/usr/data/user.ini` — byte 2217 on two devices checked, `0` off
+and `1` on, confirmed on both. But `user.ini` is a packed binary struct with
+no keys and no header, so that offset holds only as long as the layout does:
+one extra field in a future firmware and the check answers confidently and
+wrongly, which is precisely the bug being fixed here.
+
+Modification time is kept as a fallback, for the first install and for a
+collector older than this. And when the player is not running at all — at
+boot it starts after the collector — the previously recorded database is
+kept rather than second-guessed, so a quiet night cannot fake a switch.
 
 **Switching between them is the dangerous part.** The two databases number
 their rows independently, so carrying the old marker across would either skip

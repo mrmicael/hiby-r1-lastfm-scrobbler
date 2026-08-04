@@ -38,7 +38,7 @@ zig cc -target mipsel-linux-musleabihf -Os -static -Wall -Wextra \
 ## SHA256 of the files in this commit
 
 ```
-13f9ebace833630013edcb5f3feebfc10f2d3912dcfc3bf0ce8837f0922c55e2  r1collect
+66d34da103db1b658c7713ca0032536805ba6c29f99bbb8807774f796538cb21  r1collect
 d5ae1363c81fec1072c822fa5bb12d6949ac3f629f7e699f288f248c6c59abf7  r1send
 ```
 

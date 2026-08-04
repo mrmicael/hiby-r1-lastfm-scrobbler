@@ -1014,11 +1014,22 @@ script12 = f"""
 pkill -f "{T}/nocartao/rs" 2>/dev/null || true
 sleep 1
 rm -rf {T}/troca; mkdir -p {T}/troca/scrobble {T}/troca/tmp {T}/troca/sd/.temp
-cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/troca/scrobble/r1collect
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/troca/scrobble/real
+chmod 755 {T}/troca/scrobble/real
+# O r1collect de mentira e o que permite dizer qual banco o "player" tem
+# aberto — a terceira linha do `estado`. Com o de verdade, aqui, nao ha player
+# nenhum para achar, e o teste nao exercitaria o sinal que decide.
+cat > {T}/troca/scrobble/r1collect <<'FIMFALSO'
+{FALSO.replace("CTRL", T + "/troca/ctrl")
+      .replace("REAL", T + "/troca/scrobble/real")}
+FIMFALSO
 chmod 755 {T}/troca/scrobble/r1collect
 
-# Comeca no banco interno, com uma faixa.
+# Comeca no banco interno, com uma faixa. A terceira linha do `estado` e o
+# banco que o PLAYER tem aberto — e e ela que manda, nao a hora de
+# modificacao: sem o player para responder, o daemon mantem o que ja seguia.
 cp {r.to_posix_path(WORK)}/sim1.db {T}/troca/interno.db
+printf 'pcm=0\\n\\n{T}/troca/interno.db\\n' > {T}/troca/ctrl
 
 sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/troca/scrobble#' \\
     -e 's#^DB_INTERNO=.*#DB_INTERNO={T}/troca/interno.db#' \\
@@ -1039,8 +1050,10 @@ busybox ash {T}/troca/rs &
 PID=$!
 sleep 8
 # A opcao e ligada na tela do aparelho: o player passa a escrever no cartao,
-# e o banco de la ja vem com QUATRO faixas, que sao historico antigo.
+# e o banco de la ja vem com QUATRO faixas, que sao historico antigo. Quem
+# anuncia a troca e o proprio player, pelo arquivo que passou a manter aberto.
 cp {r.to_posix_path(WORK)}/sim4.db {T}/troca/sd/.temp/usrlocal_media.db
+printf 'pcm=0\\n\\n{T}/troca/sd/.temp/usrlocal_media.db\\n' > {T}/troca/ctrl
 sleep 12
 kill -TERM $PID 2>/dev/null
 sleep 2
