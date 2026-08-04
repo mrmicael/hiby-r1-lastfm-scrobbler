@@ -136,7 +136,28 @@
 # aparelho é tocado.
 
 DIR=/usr/data/scrobble
+# O banco do player tem DOIS lugares possíveis, e quem escolhe é o dono do
+# aparelho — na tela, pela opção `tf_music_db_enable`. Ligada, o player passa
+# a gravar no cartão e o de dentro para de ser atualizado.
+#
+# Os dois caminhos estão escritos dentro do próprio /usr/bin/hiby_player:
+#
+#     /data/usrlocal_media.db                   com a opção desligada
+#     /data/mnt/sd_0/.temp/usrlocal_media.db    com a opção ligada
+#
+# Isto aqui apontava fixo para o primeiro, e quem tinha a opção ligada via o
+# programa dizer "rodando" e colher zero faixa para sempre — foi relatado
+# exatamente assim. O DB é escolhido em achar_banco(), não aqui; este valor é
+# só o ponto de partida, para as mensagens de erro terem o que dizer antes da
+# primeira procura.
 DB=/usr/data/usrlocal_media.db
+DB_INTERNO=/usr/data/usrlocal_media.db
+# Onde procurar o banco no cartão, relativo a cada raiz de $CARTOES.
+DB_NO_CARTAO=.temp/usrlocal_media.db
+# Qual banco o marcador de rowid está seguindo. Os dois bancos têm numeração
+# própria, então trocar de um para o outro sem perceber faria o daemon reler o
+# histórico inteiro ou pular tudo. Ver achar_banco().
+BANCO_ATUAL=$DIR/banco
 MAIS=/usr/data/mnt/sd_0/.temp/most_played.db
 COLETOR=$DIR/r1collect
 REMETENTE=$DIR/r1send
@@ -329,6 +350,104 @@ achar_cartao() {
     done
     sd=""; LOG_SD=""; CSV_SD=""
     return 1
+}
+
+# Escolhe qual dos dois bancos do player está valendo agora.
+#
+# A opção `tf_music_db_enable`, na tela do aparelho, move o banco para o
+# cartão. Ligada, o de dentro para de ser atualizado — e o daemon, que olhava
+# só para ele, colhia zero faixa para sempre enquanto dizia estar rodando.
+#
+# A escolha é pela hora de modificação, e não pela opção: ler a opção exigiria
+# saber onde o player guarda o ajuste do usuário (o /usr/resource/config.json
+# é só o valor de fábrica, e neste aparelho ele diz 1 com o banco de dentro
+# sendo atualizado normalmente). A hora de modificação não depende de decifrar
+# formato nenhum: o banco que o player está escrevendo é o que muda.
+#
+# Trocar de banco é o caso perigoso. Os dois têm numeração de linha própria, e
+# seguir a numeração do antigo no novo faria o daemon reler o histórico
+# inteiro ou pular tudo. Quando o caminho muda, o marcador é recomeçado do
+# topo do banco novo — como numa primeira instalação — e o log diz que foi
+# feito. Perde-se o que estava lá antes; inventar duplicata seria pior.
+achar_banco() {
+    _novo=""
+    _quando=0
+    for _c in $DB_INTERNO; do
+        [ -f "$_c" ] || continue
+        _t=$(data_do_arquivo "$_c")
+        if [ "$_t" -gt "$_quando" ] 2>/dev/null; then
+            _quando=$_t; _novo=$_c
+        fi
+    done
+    for _c in $CARTOES; do
+        [ -f "$_c/$DB_NO_CARTAO" ] || continue
+        _t=$(data_do_arquivo "$_c/$DB_NO_CARTAO")
+        if [ "$_t" -gt "$_quando" ] 2>/dev/null; then
+            _quando=$_t; _novo=$_c/$DB_NO_CARTAO
+        fi
+    done
+    # Nenhum dos dois existe: mantém o que estava, para as mensagens de erro
+    # continuarem apontando para algum lugar.
+    [ -n "$_novo" ] || return 1
+
+    _antes=$(cat "$BANCO_ATUAL" 2>/dev/null)
+    if [ "$_novo" = "$_antes" ]; then
+        DB=$_novo
+        return 0
+    fi
+
+    # Quando recomeçar o marcador do topo.
+    #
+    #   já havia um caminho anotado e ele mudou  → recomeça: a numeração do
+    #     banco novo não tem relação nenhuma com a do antigo.
+    #   não havia caminho anotado (primeira vez desta versão) e o banco é o
+    #     INTERNO → não recomeça: era exatamente esse que todas as versões
+    #     anteriores seguiam, e o marcador continua valendo.
+    #   não havia caminho anotado e o banco é o do CARTÃO → recomeça: o
+    #     marcador que está lá conta linhas de outro arquivo. É o caso de quem
+    #     tinha a opção ligada e atualizou o coletor — o relato que trouxe
+    #     isto à tona.
+    _recomecar=1
+    [ -z "$_antes" ] && [ "$_novo" = "$DB_INTERNO" ] && _recomecar=0
+
+    DB=$_novo
+    echo "$DB" > "$BANCO_ATUAL" 2>/dev/null || :
+    # A marca de mtime vale para o arquivo de antes; sem apagá-la, a volta
+    # seguinte acharia que o banco novo não mudou e não colheria nada.
+    rm -f "$MARCA"
+
+    if [ "$_recomecar" = 0 ]; then
+        registrar "banco do player: $DB"
+        return 0
+    fi
+
+    # Recomeçar é pôr o marcador no topo do banco novo, aqui e agora — e não
+    # apagar o marcador. Apagá-lo faria a colheita seguinte pedir "tudo desde
+    # o zero" e despejar o histórico inteiro na fila de uma vez.
+    _topo=""
+    if cp -f "$DB" "$COPIA" 2>/dev/null; then
+        if _s=$("$COLETOR" "$COPIA" 0 "$PARCIAL" 2>>"$LOG"); then
+            _topo=${_s##* }
+        fi
+        rm -f "$COPIA" "$PARCIAL"
+    fi
+    if [ -n "$_topo" ]; then
+        echo "$_topo" > "$ESTADO"
+        registrar "banco do player agora e $DB (antes: ${_antes:-interno})." \
+                  "A numeracao e outra, entao o marcador recomeca no rowid" \
+                  "$_topo e so o que tocar daqui para frente e anotado"
+    else
+        registrar "banco do player agora e $DB, mas nao consegui le-lo para" \
+                  "recomecar o marcador; tento de novo no proximo ciclo"
+        rm -f "$BANCO_ATUAL"
+    fi
+    return 0
+}
+
+# A hora de modificação de um arquivo, em segundos. O busybox do R1 não tem
+# `stat -c %Y`, mas o `date -r` dele aceita o arquivo.
+data_do_arquivo() {
+    date -r "$1" +%s 2>/dev/null || echo 0
 }
 
 # Corta o registro do cartão quando ele cresce demais, guardando a metade
@@ -946,6 +1065,17 @@ if [ "$agora" -lt "$PISO" ]; then
     registrar "relogio em $agora, anterior ao piso $PISO: horas suspeitas"
 fi
 registrar "r1scrobbled iniciado em $(date), pid $$"
+# Qual dos dois bancos do player está valendo. Vem antes do marco zero e do
+# lote atrasado, porque os dois leem o banco — e pode mudar `primeira`.
+if achar_banco; then
+    # Dito a cada partida, e não só quando muda. Quando o banco está no lugar
+    # errado o sintoma é "diz que está rodando e não colhe nada", e a primeira
+    # coisa que alguém vai olhar é este registro.
+    registrar "banco do player em uso: $DB"
+else
+    registrar "nenhum banco do player encontrado; procurei em $DB_INTERNO e" \
+              "em <cartao>/$DB_NO_CARTAO"
+fi
 if [ -n "$sd" ]; then
     registrar "registro e planilha no cartao: $sd"
     # A planilha é reescrita já na partida. Sem isto ela só apareceria depois
@@ -1154,6 +1284,10 @@ while :; do
             registrar "cartao encontrado: $sd"
             atualizar_csv
         fi
+        # O banco pode ter mudado de lugar junto: a opção que o move para o
+        # cartão é mexida na tela do aparelho, com o daemon rodando, e o
+        # banco novo só passa a existir quando o player o reconstrói.
+        achar_banco || :
     fi
 
     # Quando vale a pena perguntar ao r1collect o que está tocando.
@@ -1305,18 +1439,44 @@ FIM_ESTADO
                     fechar_faixa_atual
                     cat "$PARCIAL" >> "$FILA"
                     echo "$maior" > "$ESTADO"
-                    registrar "$novas nova(s), rowid ate $maior"
                     # A última linha desta colheita é a faixa que ACABOU DE
-                    # COMEÇAR. A contagem dela começa agora, do zero.
-                    aberta_em=$(date +%s)
+                    # COMEÇAR, e a contagem dela começa QUANDO ELA COMEÇOU —
+                    # não quando o daemon percebeu.
+                    #
+                    # A diferença entre as duas coisas é um intervalo do laço,
+                    # até quinze segundos, e ela some do começo de toda faixa.
+                    # O próprio banco diz a hora certa: a mtime dele é o
+                    # instante em que o player gravou a linha. Já é lida a
+                    # cada volta para saber se o banco mudou; usá-la aqui não
+                    # custa nada e tira o erro na fonte, em vez de descontá-lo
+                    # depois na margem.
+                    #
+                    # Só é aceita se fizer sentido: no passado, e não mais
+                    # velha que duas voltas lentas. Um relógio recém-acertado
+                    # ou um cartão com data errada cai na reserva de sempre.
+                    _ag_col=$(date +%s)
+                    aberta_em=$(data_do_arquivo "$DB")
+                    if [ "$aberta_em" -gt 0 ] 2>/dev/null &&
+                       [ "$aberta_em" -le "$_ag_col" ] &&
+                       [ $((_ag_col - aberta_em)) -le $((LENTO * 2)) ]; then
+                        # A mtime tem precisão de segundo, e a linha pode ter
+                        # sido gravada um instante antes do arquivo fechar.
+                        atual_granul=2
+                        registrar "$novas nova(s), rowid ate $maior;" \
+                                  "inicio pela mtime do banco," \
+                                  "$((_ag_col - aberta_em))s atras"
+                    else
+                        aberta_em=$_ag_col
+                        # Sem hora confiável, volta a valer o que valia: o
+                        # começo está em algum ponto do último intervalo.
+                        atual_granul=$intervalo
+                        registrar "$novas nova(s), rowid ate $maior;" \
+                                  "mtime do banco nao serve, inicio pelo" \
+                                  "relogio (ate ${intervalo}s de atraso)"
+                    fi
                     atual_rowid=$maior
                     atual_ouvido=0
                     atual_gravado=0
-                    # A faixa já começou quando esta linha apareceu, e o
-                    # daemon só olha de tantos em tantos segundos: o começo
-                    # dela está em algum ponto do último intervalo, e esse
-                    # pedaço não entrou na conta. A incerteza começa aí.
-                    atual_granul=$intervalo
                     # Uma linha nova é uma faixa começando: está tocando.
                     pcm_antes=1
                     ultimo_olhar=$aberta_em

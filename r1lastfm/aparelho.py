@@ -28,6 +28,9 @@ ESTADO = DIR + "/estado"
 # A medição da faixa em curso, salva de tempos em tempos para um travamento
 # não levá-la junto. Existe só enquanto há faixa aberta. Ver o r1scrobbled.sh.
 MEDINDO = DIR + "/medindo"
+# Qual dos dois bancos do player o coletor está seguindo. Escrito por ele; aqui
+# só é lido, para a tela poder dizer quando o banco está no cartão.
+BANCO_ATUAL = DIR + "/banco"
 ENVIADOS = DIR + "/enviados"
 CONF = DIR + "/conf"
 SK = DIR + "/sk"
@@ -62,10 +65,10 @@ LANCADOR = "/usr/bin/hiby_player.sh"
 
 # Sobe a cada mudança que valha reinstalar no aparelho. A tela compara com o
 # que está gravado lá e só oferece a atualização quando há diferença.
-VERSAO = 11
+VERSAO = 12
 # As versões que existem. O que cada uma trouxe está no catálogo de textos,
 # sob "novidade.<n>", porque isso aparece na tela e tem de estar traduzido.
-NOVIDADES = (11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+NOVIDADES = (12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
 
 
 def novidade(versao: int) -> str:
@@ -121,6 +124,17 @@ class Situacao:
     # cartão e ainda não existe planilha, e confundir os dois fazia a tela
     # dizer "nenhum cartão gravável" para quem tinha o cartão ali.
     pasta_cartao: str = ""
+    # Qual dos dois bancos do player o coletor está seguindo. O player pode
+    # gravá-lo no cartão em vez de na memória interna (a opção
+    # `tf_music_db_enable`, na tela do aparelho), e quem tinha isso ligado via
+    # o programa dizer "rodando" e colher zero faixa, sem nada explicando por
+    # quê. Vazio quando o coletor ainda não escolheu — instalação nova, ou uma
+    # versão anterior a esta.
+    banco: str = ""
+
+    @property
+    def banco_no_cartao(self) -> bool:
+        return bool(self.banco) and "/mnt/" in self.banco
 
     @property
     def pendentes(self) -> int:
@@ -191,6 +205,7 @@ def situacao(adb: Adb) -> Situacao:
         f"  fi; "
         f"done; "
         f"echo ROWID=$(cat {ESTADO} 2>/dev/null || echo 0); "
+        f"echo BANCO=$(cat {BANCO_ATUAL} 2>/dev/null); "
         f"echo VERSAO=$(cat {VERSAO_ARQ} 2>/dev/null || echo 0); "
         f"grep -q '^AGORA=1' {CONF} 2>/dev/null && echo NP=1 || echo NP=0; "
         # O lançador cita o init.sh? Se não, ninguém nunca vai executá-lo.
@@ -251,6 +266,7 @@ def situacao(adb: Adb) -> Situacao:
                    else False if vals.get("SUP") == "0" else None),
         csv_cartao=vals.get("CSV", "").strip(),
         pasta_cartao=vals.get("CARTAO", "").strip(),
+        banco=vals.get("BANCO", "").strip(),
         ultimo_envio=vals.get("ULTIMO", "").strip(),
         motivo_espera=vals.get("ESPERA", "").strip(),
         detalhe=res.stdout.strip(),

@@ -1400,6 +1400,32 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.12": {
+        "en": "the collector now finds the player's music database wherever it "
+              "is. The player can be told to keep it on the memory card "
+              "(`tf_music_db_enable`, on the device's own screen), and from "
+              "then on the one in internal memory is never updated again — so "
+              "anyone with that turned on saw the program say \"running\" and "
+              "collect nothing, forever. It now follows whichever one the "
+              "player is actually writing, and says which in the log and on "
+              "the card. Also: a track's start time now comes from the "
+              "database's own timestamp — the moment the player wrote the row "
+              "— instead of the moment the collector noticed. That was losing "
+              "up to fifteen seconds off the beginning of every track; "
+              "measured on a real device, one track change recovered nine",
+        "pt": "o coletor agora encontra o banco de músicas do player onde quer "
+              "que ele esteja. Dá para mandar o player guardá-lo no cartão "
+              "(`tf_music_db_enable`, na tela do próprio aparelho), e a partir "
+              "daí o da memória interna nunca mais é atualizado — então quem "
+              "tinha isso ligado via o programa dizer \"rodando\" e não colher "
+              "nada, para sempre. Agora ele segue o que o player está de fato "
+              "escrevendo, e diz qual é no registro e no cartão. Também: a "
+              "hora em que uma faixa começou passa a vir do carimbo do próprio "
+              "banco — o instante em que o player gravou a linha — em vez do "
+              "instante em que o coletor percebeu. Isso comia até quinze "
+              "segundos do começo de cada faixa; medido num aparelho de "
+              "verdade, uma troca de faixa recuperou nove",
+    },
     "novidade.11": {
         "en": "the time you listened is now MEASURED, not inferred. The "
               "collector counts the seconds audio is actually coming out of "
@@ -2665,6 +2691,15 @@ TEXTOS: dict[str, dict[str, str]] = {
     "play.too_little": {
         "en": "heard for {ouviu}s of {total}s (needed {precisa}s)",
         "pt": "ouvida por {ouviu}s de {total}s (precisava de {precisa}s)",
+    },
+    # O player tem uma opção que move o banco de músicas dele para o cartão
+    # (`tf_music_db_enable`, na tela do aparelho). Com ela ligada, o banco da
+    # memória interna para de ser atualizado. O coletor segue os dois, mas
+    # dizer qual está em uso poupa a próxima pessoa de horas de "está rodando
+    # e não coleta nada".
+    "dev.db.card": {
+        "en": "The player is keeping its music database on the memory card.",
+        "pt": "O player está guardando o banco de músicas dele no cartão.",
     },
     "fila.playing": {
         "en": "still playing — it goes up on its own when it ends",

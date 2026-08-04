@@ -1,9 +1,57 @@
 # Changes since the last release
 
-Two device versions in one drop — **10** (the stricter listening rule) and
-**11** (the measurement rewrite) — plus installer fixes that need no device
-update. Update the device from **card 3** to get 10 and 11; the installer
-fixes come with the program itself.
+Three device versions in one drop — **10** (the stricter listening rule),
+**11** (the measurement rewrite) and **12** (finding the player's database) —
+plus installer fixes that need no device update. Update the device from
+**card 3**; the installer fixes come with the program itself.
+
+---
+
+## Device version 12 — the player's database is not always where it was
+
+> *"I have installed version 11 and the Python app says it is running. I have
+> been playing some music, but 0 plays have been collected. I think I see the
+> problem: I have enabled the setting to save usrlocal_media.db to the SD
+> card, so the one in /usr/data/ is not updated."*
+
+That is exactly it, and the collector was at fault: it read one hardcoded
+path. The player has a setting on its own screen — `tf_music_db_enable` —
+that moves its music database to the memory card, and from then on the copy
+in internal memory is never written again. Anyone with that turned on got a
+program that said "running" and collected nothing, with nothing on screen
+explaining why.
+
+Both paths are inside `/usr/bin/hiby_player` itself:
+
+```
+/data/usrlocal_media.db                   setting off
+/data/mnt/sd_0/.temp/usrlocal_media.db    setting on
+```
+
+The collector now looks in both and follows whichever the player is actually
+writing, decided by modification time rather than by reading the setting —
+`/usr/resource/config.json` only holds the factory default, and on a device
+where it says `1` the internal database was being updated normally, so
+trusting it would have been worse than useless.
+
+**Switching between them is the dangerous part.** The two databases number
+their rows independently, so carrying the old marker across would either skip
+everything or — much worse — dump the entire history into the queue as dozens
+of false scrobbles at once. On a switch the marker restarts at the top of the
+new database, and the log says so.
+
+The device log now names the database in use on every start, and the window
+says when it is on the card.
+
+### Start times are read from the database, not from the clock
+
+The database's modification time is the moment the player wrote the row —
+that is, the moment the track actually started. The collector used to start
+counting when it *noticed*, up to one polling interval later, and that time
+vanished from the beginning of every track. Measured on a real device, a
+single track change recovered **nine seconds**; the declared uncertainty
+drops from 15s to 2s. If the timestamp does not make sense (a clock just set,
+a card with a wrong date) the log says so and the old behaviour applies.
 
 ---
 

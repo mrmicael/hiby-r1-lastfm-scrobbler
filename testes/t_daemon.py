@@ -921,6 +921,168 @@ check("nem repetiu a linha da faixa",
 
 print()
 print("=" * 74)
+print("13. o banco do player pode estar no cartao, e o daemon tem de achar")
+print("=" * 74)
+# Relatado: "instalei a versao 11, o programa diz que esta rodando, toquei
+# musica e zero faixas foram colhidas". A causa: o player tem uma opcao,
+# `tf_music_db_enable`, que move o banco dele para o cartao — e a partir dai
+# o banco da memoria interna nunca mais e atualizado.
+#
+# Os dois caminhos estao escritos dentro do /usr/bin/hiby_player:
+#     /data/usrlocal_media.db                   opcao desligada
+#     /data/mnt/sd_0/.temp/usrlocal_media.db    opcao ligada
+# O daemon apontava fixo para o primeiro.
+script11 = f"""
+pkill -f "{T}/retomar/rs" 2>/dev/null || true
+sleep 1
+rm -rf {T}/nocartao
+mkdir -p {T}/nocartao/scrobble {T}/nocartao/tmp {T}/nocartao/sd/.temp
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/nocartao/scrobble/r1collect
+chmod 755 {T}/nocartao/scrobble/r1collect
+
+# So o banco DO CARTAO existe; o interno nem aparece.
+cp {r.to_posix_path(WORK)}/sim2.db {T}/nocartao/sd/.temp/usrlocal_media.db
+
+sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/nocartao/scrobble#' \\
+    -e 's#^DB_INTERNO=.*#DB_INTERNO={T}/nocartao/naoexiste.db#' \\
+    -e 's#^DB=/usr/data.*#DB={T}/nocartao/naoexiste.db#' \\
+    -e 's#^MAIS=.*#MAIS={T}/nocartao/nada.db#' \\
+    -e 's#^CARTOES=.*#CARTOES="{T}/nocartao/sd"#' \\
+    -e 's#^COPIA=.*#COPIA={T}/nocartao/tmp/c.db#' \\
+    -e 's#^PARCIAL=.*#PARCIAL={T}/nocartao/tmp/p.tsv#' \\
+    -e 's#^LOG=.*#LOG={T}/nocartao/tmp/log#' \\
+    -e 's#^TICK=.*#TICK={T}/nocartao/tmp/tick#' \\
+    -e 's#^TRAVA=.*#TRAVA={T}/nocartao/tmp/rodando#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \\
+    {p} > {T}/nocartao/rs
+chmod 755 {T}/nocartao/rs
+
+busybox ash {T}/nocartao/rs &
+PID=$!
+sleep 8
+# Uma faixa nova entra NO BANCO DO CARTAO.
+cp {r.to_posix_path(WORK)}/sim3.db {T}/nocartao/sd/.temp/usrlocal_media.db
+sleep 6
+kill -TERM $PID 2>/dev/null
+sleep 2
+echo "=== BANCO ESCOLHIDO ==="
+cat {T}/nocartao/scrobble/banco 2>/dev/null || echo "(nenhum)"
+echo "=== FILA ==="
+cat {T}/nocartao/scrobble/fila.tsv
+echo "=== LOG ==="
+cat {T}/nocartao/tmp/log 2>/dev/null || true
+"""
+res11 = r.posix_script(script11, name="daemon-banco-sd", mutating=False,
+                       quiet=True, timeout=120)
+print("\n".join("   " + l for l in res11.stdout.splitlines()[:22]))
+
+escolhido = ""
+if "=== BANCO ESCOLHIDO ===" in res11.stdout:
+    escolhido = res11.stdout.split("=== BANCO ESCOLHIDO ===")[1] \
+                            .split("===")[0].strip()
+check("achou o banco no cartao", escolhido.endswith("usrlocal_media.db")
+      and "/sd/" in escolhido, escolhido or "(nenhum)")
+fila11 = res11.stdout.split("=== FILA ===")[1].split("=== LOG ===")[0] \
+    if "=== FILA ===" in res11.stdout else ""
+check("e colheu a faixa que entrou nele",
+      len([l for l in fila11.splitlines() if l.startswith("p1")]) == 1,
+      f"{len([l for l in fila11.splitlines() if l.startswith('p1')])} p1 "
+      f"(zero e o defeito relatado)")
+
+# A hora em que a faixa comecou sai da mtime do banco — o instante em que o
+# player gravou a linha —, e nao de "quando o daemon percebeu". Sem isso,
+# some do comeco de cada faixa ate um intervalo do laco inteiro.
+#
+# O daemon diz no registro de qual dos dois caminhos veio a hora, porque a
+# incerteza sozinha nao serve de prova: as trocas de estado somam a ela, e um
+# fallback silencioso ficaria indistinguivel.
+check("e a hora de inicio veio da mtime do banco, nao do relogio do daemon",
+      "inicio pela mtime do banco" in res11.stdout,
+      " ".join(l for l in res11.stdout.splitlines()
+               if "inicio pel" in l or "mtime do banco" in l)[:90]
+      or "nao apareceu")
+
+print()
+print("=" * 74)
+print("14. trocar de banco recomeca o marcador, sem despejar o historico")
+print("=" * 74)
+# Os dois bancos tem numeracao propria. Seguir a numeracao do antigo no novo
+# faria o daemon pular tudo ou — pior — reler o historico inteiro e mandar
+# dezenas de faixas antigas de uma vez. Aqui o banco muda de lugar com o
+# daemon rodando, e o marcador tem de ir para o TOPO do novo.
+script12 = f"""
+pkill -f "{T}/nocartao/rs" 2>/dev/null || true
+sleep 1
+rm -rf {T}/troca; mkdir -p {T}/troca/scrobble {T}/troca/tmp {T}/troca/sd/.temp
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/troca/scrobble/r1collect
+chmod 755 {T}/troca/scrobble/r1collect
+
+# Comeca no banco interno, com uma faixa.
+cp {r.to_posix_path(WORK)}/sim1.db {T}/troca/interno.db
+
+sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/troca/scrobble#' \\
+    -e 's#^DB_INTERNO=.*#DB_INTERNO={T}/troca/interno.db#' \\
+    -e 's#^DB=/usr/data.*#DB={T}/troca/interno.db#' \\
+    -e 's#^MAIS=.*#MAIS={T}/troca/nada.db#' \\
+    -e 's#^CARTOES=.*#CARTOES="{T}/troca/sd"#' \\
+    -e 's#^COPIA=.*#COPIA={T}/troca/tmp/c.db#' \\
+    -e 's#^PARCIAL=.*#PARCIAL={T}/troca/tmp/p.tsv#' \\
+    -e 's#^LOG=.*#LOG={T}/troca/tmp/log#' \\
+    -e 's#^TICK=.*#TICK={T}/troca/tmp/tick#' \\
+    -e 's#^TRAVA=.*#TRAVA={T}/troca/tmp/rodando#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \\
+    -e 's#recheca_sd=1800#recheca_sd=3#g' \\
+    {p} > {T}/troca/rs
+chmod 755 {T}/troca/rs
+
+busybox ash {T}/troca/rs &
+PID=$!
+sleep 8
+# A opcao e ligada na tela do aparelho: o player passa a escrever no cartao,
+# e o banco de la ja vem com QUATRO faixas, que sao historico antigo.
+cp {r.to_posix_path(WORK)}/sim4.db {T}/troca/sd/.temp/usrlocal_media.db
+sleep 12
+kill -TERM $PID 2>/dev/null
+sleep 2
+echo "=== BANCO ESCOLHIDO ==="
+cat {T}/troca/scrobble/banco 2>/dev/null || echo "(nenhum)"
+echo "=== MARCADOR ==="
+cat {T}/troca/scrobble/estado 2>/dev/null || echo "(nenhum)"
+echo "=== FILA ==="
+cat {T}/troca/scrobble/fila.tsv
+echo "=== LOG ==="
+cat {T}/troca/tmp/log 2>/dev/null || true
+"""
+res12 = r.posix_script(script12, name="daemon-troca-banco", mutating=False,
+                       quiet=True, timeout=120)
+print("\n".join("   " + l for l in res12.stdout.splitlines()[:22]))
+
+
+def bloco(saida, marca):
+    if marca not in saida:
+        return ""
+    return saida.split(marca)[1].split("===")[0].strip()
+
+
+check("passou a seguir o banco do cartao",
+      "/sd/" in bloco(res12.stdout, "=== BANCO ESCOLHIDO ==="),
+      bloco(res12.stdout, "=== BANCO ESCOLHIDO ===") or "(nenhum)")
+check("o marcador foi para o TOPO do banco novo",
+      bloco(res12.stdout, "=== MARCADOR ===") == "4",
+      f"marcador={bloco(res12.stdout, '=== MARCADOR ===')}, "
+      f"esperado 4 (as 4 do banco novo sao historico, nao execucao)")
+fila12 = bloco(res12.stdout, "=== FILA ===")
+check("e o historico do banco novo NAO foi despejado na fila",
+      not [l for l in fila12.splitlines() if l.startswith("p1")],
+      f"{len([l for l in fila12.splitlines() if l.startswith('p1')])} p1 — "
+      f"cada um seria um scrobble falso")
+check("o log explica a troca",
+      "A numeracao e outra" in res12.stdout,
+      " ".join(l for l in res12.stdout.splitlines()
+               if "numeracao" in l)[:80] or "nao apareceu")
+
+print()
+print("=" * 74)
 print("12. o awk que enxuga a fila e RODADO, nao so lido")
 print("=" * 74)
 # `limpar_fila` monta um awk e manda como TEXTO para o shell do aparelho.

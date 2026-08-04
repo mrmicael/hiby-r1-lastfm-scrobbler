@@ -455,6 +455,12 @@ class Painel(ttk.Frame):
                 partes.append(t("dev.card.soon", caminho=s.pasta_cartao))
             else:
                 partes.append(t("dev.card.none"))
+            # O player pode guardar o banco dele no cartão em vez da memória
+            # interna. Só é dito quando é o caso: quem não mexeu nessa opção
+            # não precisa saber que ela existe, e quem mexeu passou horas sem
+            # entender por que nada era colhido.
+            if s.banco_no_cartao:
+                partes.append(t("dev.db.card"))
             self.lbl_dispositivo.configure(text="  ".join(partes))
             self._render_boot(s)
             self._render_versao(s)

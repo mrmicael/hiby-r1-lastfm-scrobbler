@@ -276,6 +276,27 @@ check("aparelho sem r1send devolve -1",
 
 print()
 print("=" * 74)
+print("3h. a consulta diz QUAL banco do player o coletor esta seguindo")
+print("=" * 74)
+# O player pode guardar o banco dele no cartao (`tf_music_db_enable`), e ai o
+# da memoria interna nunca mais e atualizado. Quem tinha isso ligado via
+# "rodando" e zero faixa colhida, sem nada na tela explicando. A consulta
+# passou a trazer o caminho para a janela poder dizer.
+check("a consulta pergunta pelo banco em uso",
+      AP.BANCO_ATUAL in " ".join(adb_env.comandos),
+      AP.BANCO_ATUAL)
+for resposta, no_cartao in (
+        (f"BANCO={AP.DIR}/../usrlocal_media.db", False),
+        ("BANCO=/usr/data/mnt/sd_0/.temp/usrlocal_media.db", True),
+        ("BANCO=", False),          # coletor antigo, ou instalacao nova
+):
+    lida = AP.situacao(AdbFalso({"BANCO=": resposta}))
+    check(f"{resposta or 'BANCO= (vazio)'} -> no cartao? {no_cartao}",
+          lida.banco_no_cartao == no_cartao,
+          f"leu {lida.banco!r}")
+
+print()
+print("=" * 74)
 print("3g. 'nao ha cartao' e 'a planilha ainda nao existe' sao coisas diferentes")
 print("=" * 74)
 # Relato: "recebo 'nenhum cartao de memoria gravavel encontrado'. Nao sei o
