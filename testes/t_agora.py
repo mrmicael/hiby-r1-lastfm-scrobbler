@@ -152,7 +152,7 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/scrobble#' \\
     -e 's#^TICK=.*#TICK={T}/tmp/tick#' \\
     -e 's#^TRAVA=.*#TRAVA={T}/tmp/rodando#' \\
     -e 's#^CACERT_SD=.*#CACERT_SD={T}/nao-existe.pem#' \\
-    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^ASSENTAR=5#ASSENTAR=1#' -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=1#' \\
     -e 's#^QUIETOS=8#QUIETOS=3#' \\
     -e 's#^ENVIO=720#ENVIO=9999#' \\
     -e 's#^AGORA=0#AGORA={{AG}}#' \\

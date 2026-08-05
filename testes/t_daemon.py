@@ -114,7 +114,7 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/usr/data/scrobble#' \\
     -e 's#^LOG=/tmp/.r1sc.log#LOG={T}/tmp/.r1sc.log#' \
     -e 's#^TICK=/tmp/.r1sc.tick#TICK={T}/tmp/.r1sc.tick#' \\
     -e 's#^TRAVA=.*#TRAVA={T}/tmp/.r1sc.rodando#' \
-    -e 's#^RAPIDO=15#RAPIDO=1#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^ASSENTAR=5#ASSENTAR=1#' -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' \\
     -e 's#^LENTO=60#LENTO=1#' \\
     -e 's#^QUIETOS=8#QUIETOS=3#' \\
     {p} > {T}/r1scrobbled
@@ -408,7 +408,7 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/marco/scrobble#' \
     -e 's#^LOG=.*#LOG={T}/marco/tmp/log#' \
     -e 's#^TICK=.*#TICK={T}/marco/tmp/tick#' \
     -e 's#^TRAVA=.*#TRAVA={T}/marco/tmp/rodando#' \
-    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^ASSENTAR=5#ASSENTAR=1#' -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=1#' \
     -e 's#^QUIETOS=8#QUIETOS=3#' \
     {p} > {T}/marco/rs
 chmod 755 {T}/marco/rs
@@ -475,7 +475,7 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/hup/scrobble#' \
     -e 's#^LOG=.*#LOG={T}/hup/tmp/log#' \
     -e 's#^TICK=.*#TICK={T}/hup/tmp/tick#' \
     -e 's#^TRAVA=.*#TRAVA={T}/hup/tmp/rodando#' \
-    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^ASSENTAR=5#ASSENTAR=1#' -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=1#' \
     {p} > {T}/hup/rs
 chmod 755 {T}/hup/rs
 
@@ -570,7 +570,7 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/pausa/scrobble#' \\
     -e 's#^LOG=.*#LOG={T}/pausa/tmp/log#' \\
     -e 's#^TICK=.*#TICK={T}/pausa/tmp/tick#' \\
     -e 's#^TRAVA=.*#TRAVA={T}/pausa/tmp/rodando#' \\
-    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^ASSENTAR=5#ASSENTAR=1#' -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=1#' \\
     -e 's#^QUIETOS=8#QUIETOS=3#' \\
     {p} > {T}/pausa/rs
 chmod 755 {T}/pausa/rs
@@ -687,7 +687,7 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/subir/scrobble#' \\
     -e 's#^LOG=.*#LOG={T}/subir/tmp/log#' \\
     -e 's#^TICK=.*#TICK={T}/subir/tmp/tick#' \\
     -e 's#^TRAVA=.*#TRAVA={T}/subir/tmp/rodando#' \\
-    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^ASSENTAR=5#ASSENTAR=1#' -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=1#' \\
     {p} > {T}/subir/rs
 chmod 755 {T}/subir/rs
 
@@ -762,7 +762,7 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/kill/scrobble#' \\
     -e 's#^LOG=.*#LOG={T}/kill/tmp/log#' \\
     -e 's#^TICK=.*#TICK={T}/kill/tmp/tick#' \\
     -e 's#^TRAVA=.*#TRAVA={T}/kill/tmp/rodando#' \\
-    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^ASSENTAR=5#ASSENTAR=1#' -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=1#' \\
     -e 's#^QUIETOS=8#QUIETOS=3#' -e 's#^T1_PASSO=30#T1_PASSO=3#' \\
     {p} > {T}/kill/rs
 chmod 755 {T}/kill/rs
@@ -881,7 +881,7 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/retomar/scrobble#' \\
     -e 's#^LOG=.*#LOG={T}/retomar/tmp/log#' \\
     -e 's#^TICK=.*#TICK={T}/retomar/tmp/tick#' \\
     -e 's#^TRAVA=.*#TRAVA={T}/retomar/tmp/rodando#' \\
-    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^ASSENTAR=5#ASSENTAR=1#' -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=1#' \\
     {p} > {T}/retomar/rs
 chmod 755 {T}/retomar/rs
 
@@ -953,7 +953,7 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/nocartao/scrobble#' \\
     -e 's#^LOG=.*#LOG={T}/nocartao/tmp/log#' \\
     -e 's#^TICK=.*#TICK={T}/nocartao/tmp/tick#' \\
     -e 's#^TRAVA=.*#TRAVA={T}/nocartao/tmp/rodando#' \\
-    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^ASSENTAR=5#ASSENTAR=1#' -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=1#' \\
     {p} > {T}/nocartao/rs
 chmod 755 {T}/nocartao/rs
 
@@ -1041,7 +1041,7 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/troca/scrobble#' \\
     -e 's#^LOG=.*#LOG={T}/troca/tmp/log#' \\
     -e 's#^TICK=.*#TICK={T}/troca/tmp/tick#' \\
     -e 's#^TRAVA=.*#TRAVA={T}/troca/tmp/rodando#' \\
-    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^ASSENTAR=5#ASSENTAR=1#' -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=1#' \\
     -e 's#recheca_sd=1800#recheca_sd=3#g' \\
     {p} > {T}/troca/rs
 chmod 755 {T}/troca/rs
@@ -1128,7 +1128,7 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/semsd/scrobble#' \\
     -e 's#^LOG=.*#LOG={T}/semsd/tmp/log#' \\
     -e 's#^TICK=.*#TICK={T}/semsd/tmp/tick#' \\
     -e 's#^TRAVA=.*#TRAVA={T}/semsd/tmp/rodando#' \\
-    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^ASSENTAR=5#ASSENTAR=1#' -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=1#' \\
     {p} > {T}/semsd/rs
 chmod 755 {T}/semsd/rs
 

@@ -1,5 +1,47 @@
 # Changes since the last release
 
+## Device version 14 — the collector was crashing the R1 on track changes
+
+The device would freeze and reboot while skipping through tracks. Removing the
+collector stopped it; putting it back brought it back. That reproduction is
+what identified the cause, after a long stretch of wrong guesses — the memory
+card, the firmware's memory fragmentation, a wedged kernel worker. None of
+those were it.
+
+At **every track change** the collector was doing all of this in the same
+second the player was allocating buffers for the new track, on a device that
+runs with about **1.7 MB free**:
+
+| what it did | cost |
+|---|---|
+| copied the player's whole database to `/tmp`, which is RAM | **624 kB** |
+| ran the collector on the copy | a process |
+| rewrote the card's spreadsheet | another process |
+| fired the send, which executes `curl` | **1.6 MB**, larger than the free memory |
+
+Four changes, each aimed at one of those:
+
+* **The database is read in place.** The copy existed to guard against reading
+  while the player writes; the "read failed, try again next cycle" path
+  already existed and was already tested, so it becomes the primary path
+  instead of the fallback.
+* **The send is rescheduled, not fired.** Each track change pushes the clock
+  forward again, so skipping five tracks in a row runs `curl` zero times — it
+  goes out once things settle, sending everything together.
+* **The spreadsheet is rewritten at most once a minute** instead of once per
+  track.
+* **The read waits a few seconds** after the database changes, so the work
+  lands after the player has settled rather than on top of it.
+
+Scrobbles now reach your profile about half a minute later than before. That
+is cheap next to the device restarting mid-song.
+
+**This is not promised as a cure.** It removes the four costs that could be
+named and measured. If the freezing survives it, the changes can be disabled
+one at a time against the same reproduction.
+
+---
+
 ## Device version 13 — the first track of an album was being lost
 
 > *"any time I start an album, the first song never gets scrobbled. It's

@@ -1400,6 +1400,37 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.14": {
+        "en": "the collector now stays out of the player's way when a track "
+              "changes, which is when the R1 was rebooting. Skipping through "
+              "tracks quickly would freeze the device, and removing the "
+              "collector stopped it — that is how this was found. At every "
+              "track change it used to copy the player's whole database into "
+              "RAM (624 kB on a device with about 1.7 MB free), rewrite the "
+              "card's spreadsheet, and run curl (1.6 MB, larger than the free "
+              "memory) — all in the same second the player was allocating "
+              "buffers for the new track. Now the database is read in place "
+              "with no copy, the spreadsheet is rewritten at most once a "
+              "minute, the read waits a few seconds for the player to settle, "
+              "and each track change reschedules the send instead of firing "
+              "it — so skipping five tracks in a row runs curl zero times. "
+              "Scrobbles reach your profile about half a minute later than "
+              "before, which is cheap next to the device restarting mid-song",
+        "pt": "o coletor agora sai da frente do player na troca de faixa, que "
+              "era quando o R1 reiniciava. Pular faixas rápido travava o "
+              "aparelho, e tirar o coletor resolvia — foi assim que isto foi "
+              "encontrado. A cada troca ele copiava o banco inteiro do player "
+              "para a RAM (624 kB num aparelho com uns 1,7 MB livres), "
+              "reescrevia a planilha do cartão e executava o curl (1,6 MB, "
+              "maior que a memória livre) — tudo no mesmo segundo em que o "
+              "player pedia os buffers da faixa nova. Agora o banco é lido no "
+              "lugar, sem cópia; a planilha é reescrita no máximo uma vez por "
+              "minuto; a leitura espera alguns segundos o player assentar; e "
+              "cada troca reagenda o envio em vez de dispará-lo — então pular "
+              "cinco faixas seguidas não executa o curl nenhuma vez. O "
+              "scrobble chega ao perfil meio minuto mais tarde, o que é "
+              "barato perto de o aparelho reiniciar no meio da música",
+    },
     "novidade.13": {
         "en": "the first track of an album is no longer lost. Starting an "
               "album could put two rows in the player's database before the "

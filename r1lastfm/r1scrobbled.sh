@@ -224,6 +224,14 @@ RAPIDO=15
 LENTO=60
 QUIETOS=8
 
+# Quantos segundos esperar depois de o banco mudar antes de lê-lo.
+#
+# A linha entra no banco no mesmo instante em que a faixa começa, que é quando
+# o player está alocando os buffers dela. Ler e criar processos nesse segundo
+# somava a nossa carga à dele, e o aparelho reiniciava — trocar de faixa
+# rápido derrubava o R1, e tirar o coletor resolvia.
+ASSENTAR=5
+
 # De quantos em quantos segundos ouvidos a medição é gravada em disco.
 #
 # É o tamanho do prejuízo num travamento: o que passou disto já está salvo.
@@ -299,7 +307,17 @@ PISO=1704067200
 # padrão, e por isso a diferença nunca apareceu. Quem baixasse o RAPIDO para
 # ter o scrobble mais depressa continuava esperando os quinze segundos, sem
 # nada em lugar nenhum explicando por quê.
-ESPERA_IMEDIATO=$RAPIDO
+ESPERA_IMEDIATO=45
+# Quarenta e cinco segundos depois de a faixa fechar, e não quinze.
+#
+# Enviar executa o curl — 1,6 MB, mais do que a memória livre do aparelho — e
+# fazê-lo logo depois de uma troca de faixa é despejar isso em cima do player
+# no pior momento. A cada nova troca o relógio é reagendado (ver
+# adiantar_envio), então uma sequência de pulos não dispara envio nenhum: ele
+# sai quando a reprodução assentar, com tudo junto.
+#
+# O preço é o scrobble aparecer no perfil meio minuto mais tarde. É pouco
+# perto de o aparelho reiniciar no meio da música.
 
 # Uma instância só. Existir um processo com aquele pid não basta: o número
 # pode ter sido reaproveitado por qualquer outro programa. Só conta se a linha
@@ -549,6 +567,20 @@ registrar() {
 atualizar_csv() {
     [ -n "$CSV_SD" ] || return 0
     [ -s "$FILA" ] || return 0
+    # No máximo uma vez por minuto.
+    #
+    # Isto executa o r1send e reescreve a planilha inteira no cartão, e era
+    # chamado a cada faixa. Numa sequência de pulos viravam vários processos e
+    # várias reescritas em segundos, competindo com o player pela memória. A
+    # planilha é para ler depois, no computador — atrasar um minuto não custa
+    # nada a ninguém. Quem chama com "ja" (o desligamento) não espera.
+    if [ "$1" != ja ]; then
+        _ag_csv=$(date +%s)
+        if [ -n "$csv_em" ] && [ $((_ag_csv - csv_em)) -lt 60 ] 2>/dev/null; then
+            return 0
+        fi
+        csv_em=$_ag_csv
+    fi
     if [ ! -x "$REMETENTE" ]; then
         # Sem o r1send não há planilha, e ficar calado sobre isso foi
         # exatamente o que gerou o relato "não tem scrobbles.csv no meu
@@ -643,7 +675,15 @@ adiantar_envio() {
     [ "$proximo_envio" = "$ENVIO" ] || return 0
     falta=$((proximo_envio - ESPERA_IMEDIATO))
     [ "$falta" -lt 0 ] && falta=0
-    if [ "$desde_envio" -lt "$falta" ]; then
+    # Antes isto só ANTECIPAVA o envio. Agora ele é reagendado: cada troca de
+    # faixa empurra o relógio para frente de novo.
+    #
+    # O envio executa o curl, que são 1,6 MB — mais do que a memória livre
+    # deste aparelho. Dispará-lo no meio de uma sequência de trocas rápidas
+    # era pedir para travar. Reagendando, quem pula cinco faixas seguidas não
+    # dispara curl nenhum: ele só sai quando a coisa acalmar, e aí manda todas
+    # de uma vez, que é mais barato do que uma por faixa.
+    if [ "$desde_envio" -ne "$falta" ]; then
         desde_envio=$falta
     fi
 }
@@ -806,10 +846,12 @@ mandar_lote() {
 # O r1collect faz a varredura inteira num exec só. Fazer isso em shell
 # custaria pidof + ls + grep, quatro processos em vez de um.
 anunciar() {
-    cp -f "$DB" "$COPIA" 2>/dev/null || return 1
-    "$COLETOR" buscar "$COPIA" "$1" > "$META" 2>>"$LOG"
+    # Sem cópia, pelo mesmo motivo da colheita: 624 KB para dentro da RAM na
+    # troca de faixa é o que derrubava o aparelho. Falha de leitura aqui só
+    # custa não achar os metadados desta faixa.
+    [ -r "$DB" ] || return 1
+    "$COLETOR" buscar "$DB" "$1" > "$META" 2>>"$LOG"
     rc=$?
-    rm -f "$COPIA"
     [ "$rc" = 0 ] || return 1
 
     # Um campo por linha; o r1collect já trocou controles por espaço, então
@@ -1126,6 +1168,8 @@ pcm_antes=1
 ultimo_olhar=$agora
 # Desde quando o som está parado com a faixa ainda aberta. Vazio = tocando.
 parado_desde=""
+# Quando a planilha do cartão foi reescrita pela última vez. Ver atualizar_csv.
+csv_em=""
 if [ "$agora" -lt "$PISO" ]; then
     printf 'c1\t%s\n' "$agora" >> "$FILA"
     registrar "relogio em $agora, anterior ao piso $PISO: horas suspeitas"
@@ -1146,8 +1190,9 @@ if [ -n "$sd" ]; then
     registrar "registro e planilha no cartao: $sd"
     # A planilha é reescrita já na partida. Sem isto ela só apareceria depois
     # da primeira faixa, e quem instalou e foi conferir o cartão na hora
-    # encontraria a pasta vazia sem entender por quê.
-    atualizar_csv
+    # encontraria a pasta vazia sem entender por quê. Por isso "ja": esta não
+    # espera o minuto de folga.
+    atualizar_csv ja
 else
     registrar "sem cartao gravavel; o registro fica so em $LOG (some no boot)"
 fi
@@ -1481,15 +1526,53 @@ FIM_ESTADO
 
     if [ "$DB" -nt "$MARCA" ]; then
         mexeu=1
+
+        # Deixa o player respirar antes de ler o banco dele.
+        #
+        # A linha nova aparece no mesmo instante em que a faixa começa, que é
+        # exatamente quando o player está pedindo os buffers dela. Ler o banco
+        # e criar processos nesse segundo é somar a nossa carga à dele, e o
+        # aparelho reiniciava. Esperar uma volta custa alguns segundos numa
+        # medição que já é feita com régua de segundos, e tira a nossa parte
+        # de cima do pior momento.
+        #
+        # A marca NÃO é tocada aqui: sem isso o ciclo seguinte não veria mais
+        # a mudança e a faixa se perderia.
+        _m_db=$(data_do_arquivo "$DB")
+        _ag_db=$(date +%s)
+        if [ "$_m_db" -gt 0 ] 2>/dev/null &&
+           [ $((_ag_db - _m_db)) -lt "$ASSENTAR" ]; then
+            colher=0
+        else
+            colher=1
+        fi
+    else
+        colher=0
+    fi
+
+    if [ "$colher" = 1 ]; then
         # A marca é atualizada ANTES da cópia. Se o player gravar durante a
         # cópia, o banco fica mais novo que a marca e o ciclo seguinte pega —
         # o contrário perderia a gravação.
         touch "$MARCA" 2>/dev/null
 
-        if cp -f "$DB" "$COPIA" 2>/dev/null; then
+        # O banco é lido NO LUGAR, sem cópia.
+        #
+        # Aqui havia um `cp` do banco inteiro para /tmp, que é RAM. São 624 KB
+        # alocados de uma vez, no exato instante em que o player está pedindo
+        # os buffers da faixa nova, num aparelho que vive com 1,7 MB livres.
+        # Trocar de faixa rápido travava o aparelho, e parar de scrobblar
+        # resolvia — foi assim que isto foi encontrado.
+        #
+        # A cópia existia para se proteger de ler o banco enquanto o player
+        # escreve. A proteção continua, por outro caminho: uma leitura rasgada
+        # faz o r1collect falhar, e o `else` logo abaixo já põe a marca para
+        # trás e tenta de novo no ciclo seguinte. Era esse o plano B desde o
+        # começo; agora ele é o plano A.
+        if [ -r "$DB" ]; then
             desde=$(cat "$ESTADO" 2>/dev/null)
             [ -n "$desde" ] || desde=0
-            if saida=$("$COLETOR" "$COPIA" "$desde" "$PARCIAL" 2>>"$LOG"); then
+            if saida=$("$COLETOR" "$DB" "$desde" "$PARCIAL" 2>>"$LOG"); then
                 novas=${saida%% *}
                 maior=${saida##* }
                 if [ "$novas" -gt 0 ] 2>/dev/null; then
@@ -1588,7 +1671,9 @@ FIM_ESTADO
                 registrar "leitura falhou; tentando de novo no proximo ciclo"
                 touch -t 200001010000 "$MARCA" 2>/dev/null
             fi
-            rm -f "$COPIA" "$PARCIAL"
+            # Só o parcial: o banco não é mais copiado, e apagá-lo seria
+            # apagar o histórico do player.
+            rm -f "$PARCIAL"
         fi
     fi
 

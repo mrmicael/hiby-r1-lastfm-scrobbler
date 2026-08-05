@@ -145,6 +145,8 @@ sed -e 's#^DIR=.*#DIR={T}/scrobble#' \\
     -e 's#^TIDAL_INI=.*#TIDAL_INI={T}/naoexiste.ini#' \\
     -e 's#^TAT=.*#TAT={T}/naoexiste.tat#' \\
     -e 's#^RAPIDO=.*#RAPIDO={RAPIDO}#' \\
+    -e 's#^ASSENTAR=.*#ASSENTAR=1#' \\
+    -e 's#^ESPERA_IMEDIATO=.*#ESPERA_IMEDIATO=2#' \\
     -e 's#^LENTO=.*#LENTO={LENTO}#' \\
     -e 's#^ENVIO=.*#ENVIO={ENVIO}#' \\
     -e 's#^CACERT_SD=.*#CACERT_SD={T}/scrobble/cacert.pem#' \\
