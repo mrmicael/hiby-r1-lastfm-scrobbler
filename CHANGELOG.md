@@ -1,5 +1,37 @@
 # Changes since the last release
 
+## Device version 15 — two things reported as "it isn't counting my tracks"
+
+### A track that reached its own end now counts
+
+> *"it doesn't count songs that weren't 100% listened to — like only 3:21 of
+> 3:27, when the rest is just silence"*
+
+Track length is worked out from `size × 8 / bitrate`, which comes out long on a
+file carrying cover art and tags. Silence at the end shortens the measurement.
+Together they could reject a track played all the way through.
+
+The collector now tells **finishing** apart from **skipping** without doing
+that arithmetic at all: skipping leaves the audio playing right up to the skip,
+so the audio device is still open when the next track's row arrives. A track
+that ends on its own stops the audio first. That difference is observable, and
+it does not care whether the stored length is honest.
+
+Opening a track and walking away still does not count — that also ends with the
+audio stopped, so it is capped at having heard at least half.
+
+### Scrobbles no longer get stuck while you skip around
+
+The other half of the report was mine. In version 14 each track change pushed
+the send back, so someone skipping constantly never sent anything. The tracks
+were measured and approved and simply sat in the queue — from outside, that is
+indistinguishable from not being counted.
+
+There is a ceiling now: the send is still deferred to keep `curl` away from
+track changes, but never by more than 150 seconds.
+
+---
+
 ## Device version 14 — the collector was crashing the R1 on track changes
 
 The device would freeze and reboot while skipping through tracks. Removing the

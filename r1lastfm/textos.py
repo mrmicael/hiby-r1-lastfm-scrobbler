@@ -1400,6 +1400,37 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.15": {
+        "en": "a track that reached its own end now counts, even when the "
+              "file has silence at the end or the stored length is longer "
+              "than the music. Track length is worked out from size x 8 / "
+              "bitrate, which comes out long on a file carrying cover art and "
+              "tags, so a track played all the way through could be rejected "
+              "for \"not enough\" — reported as 3:21 of 3:27 with the rest "
+              "silence. The collector now tells finishing apart from skipping "
+              "without doing that arithmetic: skipping leaves the audio "
+              "playing right up to the skip, while a track that ends stops "
+              "the audio first. Opening a track and walking away still does "
+              "not count. Also: scrobbles no longer get stuck while you skip "
+              "around. Each track change was pushing the send back, so "
+              "someone skipping constantly never sent anything — the tracks "
+              "were measured and approved, they just sat there, which looks "
+              "exactly like not being counted. There is a ceiling now",
+        "pt": "uma faixa que chegou ao próprio fim passa a contar, mesmo com "
+              "silêncio no fim do arquivo ou com a duração registrada maior "
+              "que a música. A duração é calculada de tamanho x 8 / taxa, o "
+              "que sobra num arquivo com capa e tags — então uma faixa tocada "
+              "inteira podia ser recusada por \"faltou tempo\", relatado como "
+              "3:21 de 3:27 com o resto em silêncio. O coletor agora separa "
+              "terminar de pular sem fazer essa conta: quem pula deixa o "
+              "áudio tocando até o pulo, e a faixa que acaba para o áudio "
+              "antes. Abrir uma faixa e largá-la continua não contando. "
+              "Também: os scrobbles deixam de ficar presos enquanto você pula "
+              "faixa. Cada troca empurrava o envio para frente, então quem "
+              "pulava sem parar nunca enviava nada — as faixas estavam "
+              "medidas e aprovadas, só paradas, o que de fora é idêntico a "
+              "não terem sido contabilizadas. Agora há um teto",
+    },
     "novidade.14": {
         "en": "the collector now stays out of the player's way when a track "
               "changes, which is when the R1 was rebooting. Skipping through "

@@ -111,6 +111,10 @@ class Play:
     # A régua com que `listened` foi medido, em segundos; 0 quando o número
     # não veio de medição nenhuma. Ver a margem em scrobblable().
     regua: int = 0
+    # A faixa chegou ao fim sozinha (o audio parou antes de a seguinte entrar),
+    # em vez de ter sido pulada. Vale mais do que a razao medido/duracao, que
+    # erra com silencio no fim do arquivo ou com duracao estimada a mais.
+    ate_o_fim: bool = False
 
     def scrobblable(self) -> tuple[bool, str]:
         """As regras do Last.fm, ditas em voz alta.
@@ -125,6 +129,14 @@ class Play:
         if self.duration and self.duration < MIN_TRACK_SECONDS:
             return False, t("play.too_short", segundos=self.duration,
                             minimo=MIN_TRACK_SECONDS)
+        # Tocou ate o fim sozinha: conta, e a razao medido/duracao nao
+        # opina. Ela erra justamente aqui — a duracao vem de tamanho x 8 /
+        # taxa e sobra num arquivo com capa e tags, e silencio no fim encurta
+        # o medido. Ainda assim e preciso ter ouvido a maior parte: uma faixa
+        # aberta e abandonada tambem termina com o audio parado.
+        if (self.ate_o_fim and self.duration
+                and self.listened * 2 >= self.duration):
+            return True, ""
         if self.duration and self.listened >= 0:
             # Arredondando para CIMA, como o r1send.c faz com o `+ 99`. Com a
             # divisão inteira de antes, uma faixa de 125 s precisava de 62 s e

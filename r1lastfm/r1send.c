@@ -221,6 +221,9 @@ typedef struct {
      * quer dizer "terminou": sem esta marca, uma faixa no segundo 35 de 133
      * apareceria na planilha como "skipped" no meio da música. */
     int  fechada;
+    /* A faixa chegou ao fim sozinha, e não foi pulada. Vale mais do que a
+     * conta dos 90%: a duração é estimada e pode sobrar. */
+    int  ate_o_fim;
     int  sessao;
     char artista[TXT];
     char titulo[TXT];
@@ -408,6 +411,15 @@ static int carregar(const char *caminho, Fila *f)
                                  ? seg : f->v[j].medido + seg;
                 if (reg > f->v[j].regua) f->v[j].regua = reg;
                 if (nc > 4 && !strcmp(c[4], "fim")) f->v[j].fechada = 1;
+                /* A faixa acabou sozinha: o áudio parou antes de a seguinte
+                 * entrar. Quem pula deixa o som tocando até o pulo, então
+                 * isto separa "ouviu até o fim" de "interrompeu" sem depender
+                 * da duração — que vem de tamanho x 8 / taxa e sobra em
+                 * arquivo com capa e tags, reprovando faixa ouvida inteira. */
+                if (nc > 4 && !strcmp(c[4], "fimnat")) {
+                    f->v[j].fechada = 1;
+                    f->v[j].ate_o_fim = 1;
+                }
                 break;
             }
             continue;
@@ -666,6 +678,12 @@ static int ja_enviado(const Enviados *e, long rowid)
 static int ouviu_bastante(const Exec *e)
 {
     long precisa, margem, teto;
+    /* Tocou até o fim sozinha: conta, e a razão medido/duração não opina.
+     * Ela erra justamente aqui — silêncio no fim do arquivo e duração
+     * estimada por tamanho x 8 / taxa fazem uma faixa inteira parecer curta.
+     * Ainda assim é preciso ter ouvido a maior parte: uma faixa aberta e
+     * abandonada no primeiro segundo também termina com o áudio parado. */
+    if (e->ate_o_fim && e->duracao > 0 && e->ouviu * 2 >= e->duracao) return 1;
     if (e->duracao <= 0 || e->ouviu < 0) return 1;   /* sem como julgar */
     precisa = (e->duracao * MIN_PCT + 99) / 100;
     if (precisa > CHEIA) precisa = CHEIA;

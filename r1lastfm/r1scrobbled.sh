@@ -232,6 +232,10 @@ QUIETOS=8
 # rápido derrubava o R1, e tirar o coletor resolvia.
 ASSENTAR=5
 
+# Por quanto tempo, no máximo, o envio pode ser adiado por trocas de faixa.
+# Sem este teto, quem fica pulando adia para sempre e nada sobe.
+TETO_ESPERA=150
+
 # De quantos em quantos segundos ouvidos a medição é gravada em disco.
 #
 # É o tamanho do prejuízo num travamento: o que passou disto já está salvo.
@@ -615,8 +619,24 @@ fechar_faixa_atual() {
     #
     # Sai mesmo valendo zero: não é a medida, é o aviso de que acabou. Faixa
     # pulada no primeiro segundo tem zero a dizer e precisa ser fechada.
-    printf 't1\t%s\t%s\t%s\tfim\n' \
-           "$atual_rowid" "$atual_ouvido" "$atual_granul" >> "$FILA"
+    # "fimnat" = a faixa chegou ao fim sozinha; "fim" = foi interrompida.
+    #
+    # A diferença é observável e não precisa de chute: quem pula deixa o áudio
+    # tocando até o instante do pulo, então o pcm ainda está aberto quando a
+    # linha da faixa seguinte entra. Quando a faixa acaba por conta própria, o
+    # áudio para ANTES — e é isso que `parado_desde` registra.
+    #
+    # Sem esta distinção, uma faixa tocada inteira era recusada por "faltou
+    # tempo" toda vez que a duração estivesse superestimada: ela vem de
+    # tamanho x 8 / taxa, e num arquivo com capa e tags o cálculo sobra. Foi o
+    # relato de 3:21 de 3:27, com os seis segundos finais em silêncio.
+    if [ -n "$parado_desde" ]; then
+        _fim=fimnat
+    else
+        _fim=fim
+    fi
+    printf 't1\t%s\t%s\t%s\t%s\n' \
+           "$atual_rowid" "$atual_ouvido" "$atual_granul" "$_fim" >> "$FILA"
     registrar "faixa $atual_rowid fechada: ${atual_ouvido}s ouvidos" \
               "(incerteza ${atual_granul}s)"
     rm -f "$MEDINDO"
@@ -683,6 +703,15 @@ adiantar_envio() {
     # era pedir para travar. Reagendando, quem pula cinco faixas seguidas não
     # dispara curl nenhum: ele só sai quando a coisa acalmar, e aí manda todas
     # de uma vez, que é mais barato do que uma por faixa.
+    # ...mas com teto. Reagendar sem limite fazia quem fica pulando faixa
+    # nunca disparar envio nenhum: cada troca empurrava o relógio de novo e as
+    # faixas ficavam paradas na fila, o que de fora parece "não contabilizou".
+    # Passados TETO_ESPERA segundos desde o primeiro fecho pendente, vai.
+    _ag_env=$(date +%s)
+    [ -n "$pendente_desde" ] || pendente_desde=$_ag_env
+    if [ $((_ag_env - pendente_desde)) -ge "$TETO_ESPERA" ]; then
+        return 0
+    fi
     if [ "$desde_envio" -ne "$falta" ]; then
         desde_envio=$falta
     fi
@@ -1170,6 +1199,8 @@ ultimo_olhar=$agora
 parado_desde=""
 # Quando a planilha do cartão foi reescrita pela última vez. Ver atualizar_csv.
 csv_em=""
+# Desde quando há faixa fechada esperando envio. Ver o teto em adiantar_envio.
+pendente_desde=""
 if [ "$agora" -lt "$PISO" ]; then
     printf 'c1\t%s\n' "$agora" >> "$FILA"
     registrar "relogio em $agora, anterior ao piso $PISO: horas suspeitas"
@@ -1816,6 +1847,8 @@ FIM_ESTADO
     desde_envio=$((desde_envio + intervalo))
     if [ "$desde_envio" -ge "$proximo_envio" ]; then
         desde_envio=0
+        # O relógio do teto recomeça: o que estava pendente foi tratado.
+        pendente_desde=""
         tentar_enviar
         rc=$?
         if [ "$rc" = 0 ]; then

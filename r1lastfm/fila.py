@@ -141,6 +141,8 @@ class Registro:
     # O daemon já disse que esta faixa acabou. Enquanto for falso, a medida
     # que existe é parcial: a faixa pode estar tocando neste instante.
     fechada: bool = False
+    # A faixa chegou ao fim sozinha, e nao foi pulada.
+    ate_o_fim: bool = False
 
 
 @dataclass
@@ -179,7 +181,14 @@ def ler(texto: str) -> tuple[list[Registro], int]:
                     rowid=int(campos[1]),
                     medido=max(0, int(campos[2])),
                     regua=max(0, int(campos[3])) if len(campos) > 3 else 0,
-                    fechada=len(campos) > 4 and campos[4].strip() == "fim",
+                    fechada=len(campos) > 4
+                            and campos[4].strip() in ("fim", "fimnat"),
+                    # "fimnat": o áudio parou antes de a faixa seguinte
+                    # entrar, ou seja, ela acabou sozinha em vez de ser
+                    # pulada. Vale mais do que a razão medido/duração, que
+                    # erra quando o arquivo tem silêncio no fim ou a duração
+                    # estimada sobra.
+                    ate_o_fim=len(campos) > 4 and campos[4].strip() == "fimnat",
                 ))
             elif tipo == "p1":
                 # p1 rowid hora artista titulo album album_artista dur ano path
@@ -233,17 +242,19 @@ def reconstruir(regs: Sequence[Registro], *,
     # passa do limite fecha a faixa com o que já tinha, e o resto da escuta
     # chega depois, num segundo t1 com o mesmo rowid. Somar é o que faz "ouvi
     # metade, almocei, ouvi o resto" contar como a música inteira.
-    medidas: dict[int, tuple[int, int, bool]] = {}
+    medidas: dict[int, tuple[int, int, bool, bool]] = {}
     for reg in limpos:
         if reg.tipo != "t1":
             continue
-        antes, regua, fim = medidas.get(reg.rowid, (0, 0, False))
+        antes, regua, fim, nat = medidas.get(reg.rowid,
+                                             (0, 0, False, False))
         medidas[reg.rowid] = (antes + reg.medido, max(regua, reg.regua),
-                              fim or reg.fechada)
+                              fim or reg.fechada, nat or reg.ate_o_fim)
     if medidas:
         for reg in limpos:
             if reg.tipo == "p1" and reg.rowid in medidas:
-                reg.medido, reg.regua, reg.fechada = medidas[reg.rowid]
+                (reg.medido, reg.regua, reg.fechada,
+                 reg.ate_o_fim) = medidas[reg.rowid]
     limpos = [r for r in limpos if r.tipo != "t1"]
 
     # Corta em sessões: um reinício não é uma pausa entre músicas.
@@ -399,6 +410,7 @@ def _uma_sessao(sessao, out, modo, ultima, enviados, agora, suspeito_ate,
             source=reg.caminho,
             rowid=reg.rowid,
             regua=reg.regua if reg.medido >= 0 else 0,
+            ate_o_fim=reg.ate_o_fim,
         )
 
         if not certeza:

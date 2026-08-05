@@ -374,6 +374,54 @@ check("sem o a1, a primeira sairia com zero (o defeito relatado)",
 
 print()
 print("=" * 74)
+print("6d. faixa que acabou sozinha conta, mesmo com silencio no fim")
+print("=" * 74)
+# Relato: "nao computa musicas que nao estejam 100% escutadas, tipo so 3:21
+# de 3:27, sendo que o resto e so silencio".
+#
+# A duracao vem de tamanho x 8 / taxa, e num arquivo com capa e tags ela
+# sobra; silencio no fim encurta o medido. Os dois juntos reprovavam faixa
+# ouvida inteira.
+#
+# O daemon distingue: quem PULA deixa o audio tocando ate o pulo, entao o pcm
+# ainda esta aberto quando a linha seguinte entra. Quando a faixa acaba
+# sozinha o audio para ANTES, e o t1 sai como "fimnat".
+def t1nat(rowid, ouvido, regua=15):
+    return f"t1\t{rowid}\t{ouvido}\t{regua}\tfimnat"
+
+
+INI2 = AGORA - 900
+# 201 de 207 = 97%: passaria de qualquer jeito. O caso que importa e a
+# duracao superestimada — 201 medidos numa faixa que o banco diz ter 260.
+fila = (f"b1\t{INI2 - 60}\n" + p1(110, INI2, "Com silencio no fim", 260) + "\n"
+        + t1nat(110, 201) + "\n")
+r = rodar(fila, "fimnat")
+check("acabou sozinha: conta mesmo com a duracao sobrando",
+      r["Com silencio no fim"]["status"] == "pending",
+      f"{r['Com silencio no fim']['seconds_heard']}s de 260s -> "
+      f"{r['Com silencio no fim']['status']}")
+
+# A MESMA medida, mas interrompida: 201 de 260 e pulo, e continua sendo.
+fila = (f"b1\t{INI2 - 60}\n" + p1(111, INI2, "Pulada no fim", 260) + "\n"
+        + t1(111, 201) + "\n")
+r = rodar(fila, "fimint")
+check("interrompida com a mesma medida continua sendo pulo",
+      r["Pulada no fim"]["status"] == "skipped",
+      f"{r['Pulada no fim']['seconds_heard']}s -> "
+      f"{r['Pulada no fim']['status']}")
+
+# E "acabou sozinha" nao e cheque em branco: abrir e largar no comeco tambem
+# termina com o audio parado, e isso nao pode contar.
+fila = (f"b1\t{INI2 - 60}\n" + p1(112, INI2, "Largada no comeco", 260) + "\n"
+        + t1nat(112, 20) + "\n")
+r = rodar(fila, "fimnat_curto")
+check("mas largar no comeco nao vira escuta",
+      r["Largada no comeco"]["status"] == "skipped",
+      f"{r['Largada no comeco']['seconds_heard']}s -> "
+      f"{r['Largada no comeco']['status']}")
+
+print()
+print("=" * 74)
 print("7. as duas implementacoes tem de CONCORDAR sobre o tempo medido")
 print("=" * 74)
 # O CSV do cartao sai do C e o que sobe ao Last.fm passa pelo Python. Se as
