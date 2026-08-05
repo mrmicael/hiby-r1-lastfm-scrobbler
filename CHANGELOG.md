@@ -1,5 +1,28 @@
 # Changes since the last release
 
+## Device version 16 — a skip could disguise itself as an ending
+
+> *"see that I Heard It Through the Grapevine? I skipped it and it counted
+> anyway"*
+
+Version 15 started telling a track that **finished** apart from one that was
+**skipped**, by watching the audio: skipping leaves the audio playing right up
+to the skip, while a track that ends stops the audio first.
+
+That signal is good but not infallible. Between one track and the next there is
+a moment of silence, and when you skip, the collector can look exactly then —
+so the skip disguises itself as an ending. The bar for that case was **half**
+the track, which let a track skipped past its midpoint go up as listened.
+
+It is **80%** now. That covers a track length that reads long because of cover
+art and tags, which is what the rule exists for, and comes nowhere near
+covering a skip.
+
+Nothing was added to the moment a track changes: this is one comparison inside
+a program that was already running.
+
+---
+
 ## Device version 15 — two things reported as "it isn't counting my tracks"
 
 ### A track that reached its own end now counts

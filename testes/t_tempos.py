@@ -391,23 +391,26 @@ def t1nat(rowid, ouvido, regua=15):
 
 
 INI2 = AGORA - 900
-# 201 de 207 = 97%: passaria de qualquer jeito. O caso que importa e a
-# duracao superestimada — 201 medidos numa faixa que o banco diz ter 260.
-fila = (f"b1\t{INI2 - 60}\n" + p1(110, INI2, "Com silencio no fim", 260) + "\n"
-        + t1nat(110, 201) + "\n")
+# O relato foi 3:21 de 3:27, mas o caso que a regra existe para resolver e a
+# duracao SUPERESTIMADA: capa e tags fazem tamanho x 8 / taxa sobrar. Aqui a
+# faixa dura 188s de musica e o banco declara 230 — 82%, que reprova nos 90%
+# e passa nos 80% de quem chegou ao fim sozinha.
+fila = (f"b1\t{INI2 - 60}\n" + p1(110, INI2, "Com silencio no fim", 230) + "\n"
+        + t1nat(110, 188) + "\n")
 r = rodar(fila, "fimnat")
 check("acabou sozinha: conta mesmo com a duracao sobrando",
       r["Com silencio no fim"]["status"] == "pending",
-      f"{r['Com silencio no fim']['seconds_heard']}s de 260s -> "
+      f"{r['Com silencio no fim']['seconds_heard']}s de 230s -> "
       f"{r['Com silencio no fim']['status']}")
 
-# A MESMA medida, mas interrompida: 201 de 260 e pulo, e continua sendo.
-fila = (f"b1\t{INI2 - 60}\n" + p1(111, INI2, "Pulada no fim", 260) + "\n"
-        + t1(111, 201) + "\n")
+# A MESMA medida, mas interrompida: 201 de 230 nao chega aos 90% e continua
+# sendo pulo. So o fim natural afrouxa a regua.
+fila = (f"b1\t{INI2 - 60}\n" + p1(111, INI2, "Pulada no fim", 230) + "\n"
+        + t1(111, 188) + "\n")
 r = rodar(fila, "fimint")
 check("interrompida com a mesma medida continua sendo pulo",
       r["Pulada no fim"]["status"] == "skipped",
-      f"{r['Pulada no fim']['seconds_heard']}s -> "
+      f"{r['Pulada no fim']['seconds_heard']}s de 230s -> "
       f"{r['Pulada no fim']['status']}")
 
 # E "acabou sozinha" nao e cheque em branco: abrir e largar no comeco tambem
@@ -419,6 +422,20 @@ check("mas largar no comeco nao vira escuta",
       r["Largada no comeco"]["status"] == "skipped",
       f"{r['Largada no comeco']['seconds_heard']}s -> "
       f"{r['Largada no comeco']['status']}")
+
+# O caso que escapou: entre uma faixa e a proxima ha um instante de silencio,
+# e num pulo o daemon pode pega-lo na volta em que olha — o pulo se disfarca
+# de fim. Com a regua em metade, uma faixa pulada passada a metade subia ao
+# perfil, e foi relatada assim. Com 80% ela nao passa mais.
+for medido, esperado in ((155, "skipped"), (208, "pending")):
+    fila = (f"b1\t{INI2 - 60}\n"
+            + p1(120 + medido, INI2, f"Pulo{medido}", 260) + "\n"
+            + t1nat(120 + medido, medido) + "\n")
+    r = rodar(fila, f"pulo{medido}")
+    check(f"'acabou sozinha' com {medido}s de 260s "
+          f"({medido * 100 // 260}%) -> {esperado}",
+          r[f"Pulo{medido}"]["status"] == esperado,
+          r[f"Pulo{medido}"]["status"])
 
 print()
 print("=" * 74)

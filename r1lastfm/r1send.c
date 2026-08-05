@@ -678,12 +678,21 @@ static int ja_enviado(const Enviados *e, long rowid)
 static int ouviu_bastante(const Exec *e)
 {
     long precisa, margem, teto;
-    /* Tocou até o fim sozinha: conta, e a razão medido/duração não opina.
-     * Ela erra justamente aqui — silêncio no fim do arquivo e duração
-     * estimada por tamanho x 8 / taxa fazem uma faixa inteira parecer curta.
-     * Ainda assim é preciso ter ouvido a maior parte: uma faixa aberta e
-     * abandonada no primeiro segundo também termina com o áudio parado. */
-    if (e->ate_o_fim && e->duracao > 0 && e->ouviu * 2 >= e->duracao) return 1;
+    /* Tocou até o fim sozinha: 80% em vez dos 90%.
+     *
+     * O sinal de "acabou sozinha" é bom mas não é infalível: entre uma faixa
+     * e a próxima há um instante de silêncio, e num pulo o daemon pode
+     * pegá-lo justamente na volta em que olha. Aí um pulo se disfarça de fim.
+     *
+     * Por isso ele afrouxa a régua em vez de dispensá-la. Dez pontos cobrem
+     * uma duração superestimada — ela vem de tamanho x 8 / taxa e sobra em
+     * arquivo com capa e tags — e cobrem o silêncio no fim do arquivo. Não
+     * cobrem um pulo: quem pula no meio fica muito abaixo disso.
+     *
+     * A régua era metade e isso era frouxo demais: uma faixa pulada passada a
+     * metade subiu ao perfil de quem relatou. */
+    if (e->ate_o_fim && e->duracao > 0
+        && e->ouviu * 5 >= e->duracao * 4) return 1;
     if (e->duracao <= 0 || e->ouviu < 0) return 1;   /* sem como julgar */
     precisa = (e->duracao * MIN_PCT + 99) / 100;
     if (precisa > CHEIA) precisa = CHEIA;

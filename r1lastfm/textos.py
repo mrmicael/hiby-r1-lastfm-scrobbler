@@ -1400,6 +1400,23 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.16": {
+        "en": "the rule for a track that reached its own end was too loose. "
+              "Between one track and the next there is a moment of silence, "
+              "and when you skip, the collector can look exactly then — so a "
+              "skip disguises itself as an ending. The bar for that case was "
+              "half the track, which let a track skipped past its midpoint go "
+              "up as listened; it was reported that way. It is 80% now: "
+              "enough to cover a track length that reads long because of "
+              "cover art and tags, nowhere near enough to cover a skip",
+        "pt": "a regra da faixa que chega ao proprio fim estava frouxa. Entre "
+              "uma faixa e a proxima ha um instante de silencio, e ao pular o "
+              "coletor pode olhar justamente nele — entao o pulo se disfarca "
+              "de fim. A regua desse caso era metade da faixa, o que fazia "
+              "uma faixa pulada passada a metade subir como ouvida, e foi "
+              "relatado assim. Agora sao 80%: cobre a duracao que sai longa "
+              "por causa de capa e tags, e nao chega perto de cobrir um pulo",
+    },
     "novidade.15": {
         "en": "a track that reached its own end now counts, even when the "
               "file has silence at the end or the stored length is longer "

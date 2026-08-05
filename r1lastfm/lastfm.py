@@ -134,8 +134,15 @@ class Play:
         # taxa e sobra num arquivo com capa e tags, e silencio no fim encurta
         # o medido. Ainda assim e preciso ter ouvido a maior parte: uma faixa
         # aberta e abandonada tambem termina com o audio parado.
+        # Tocou ate o fim sozinha: 80% em vez dos 90%.
+        #
+        # O sinal de "acabou sozinha" e bom mas nao e infalivel: entre uma
+        # faixa e a proxima ha um instante de silencio, e num pulo o daemon
+        # pode peg -lo justamente na volta em que olha. Dez pontos cobrem a
+        # duracao superestimada e o silencio no fim; nao cobrem um pulo. Com
+        # metade — como estava — uma faixa pulada passada a metade subia.
         if (self.ate_o_fim and self.duration
-                and self.listened * 2 >= self.duration):
+                and self.listened * 5 >= self.duration * 4):
             return True, ""
         if self.duration and self.listened >= 0:
             # Arredondando para CIMA, como o r1send.c faz com o `+ 99`. Com a
