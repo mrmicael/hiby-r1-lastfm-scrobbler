@@ -1201,6 +1201,9 @@ parado_desde=""
 csv_em=""
 # Desde quando há faixa fechada esperando envio. Ver o teto em adiantar_envio.
 pendente_desde=""
+# Quando foi a colheita anterior. É a janela que se reparte quando várias
+# faixas caem numa passada só.
+ultima_colheita=""
 if [ "$agora" -lt "$PISO" ]; then
     printf 'c1\t%s\n' "$agora" >> "$FILA"
     registrar "relogio em $agora, anterior ao piso $PISO: horas suspeitas"
@@ -1636,12 +1639,42 @@ FIM_ESTADO
                     # reconstruir as horas para trás pela duração de cada uma.
                     # Só a última é a que está tocando agora, e essa é medida.
                     if [ "$novas" -gt 1 ]; then
-                        printf 'a1\t%s\t%s\n' "$(date +%s)" "$((novas - 1))" \
-                            >> "$FILA"
-                        registrar "$novas linhas numa colheita so; as" \
-                                  "$((novas - 1)) primeiras vao com hora" \
-                                  "reconstruida"
+                        # Várias faixas numa colheita só: reparte a JANELA
+                        # REAL entre elas, em vez de dar a duração de cada uma.
+                        #
+                        # Aqui eu marcava com a1, que é o tratamento do que
+                        # tocou com o daemon fora do ar — e o a1 reconstrói
+                        # supondo que cada faixa tocou inteira. Pulando
+                        # depressa, três linhas caem na mesma passada e as
+                        # três subiam como ouvidas por completo. Foi relatado
+                        # com print: cinco faixas a um minuto uma da outra,
+                        # todas contabilizadas.
+                        #
+                        # O que se sabe é quanto tempo passou desde a última
+                        # olhada. Se três linhas entraram em 45 segundos,
+                        # nenhuma tocou mais que quinze — e a regra dos 90%
+                        # descarta as três, que é o certo.
+                        # A hora é pega AQUI: o _ag_col só é calculado mais
+                        # abaixo, e usá-lo antes deixava a conta com uma
+                        # variável vazia — o que mata o daemon na primeira
+                        # colheita, sem dizer nada.
+                        _ag_jan=$(date +%s)
+                        _jan=$((_ag_jan - ${ultima_colheita:-$_ag_jan}))
+                        [ "$_jan" -lt 0 ] 2>/dev/null && _jan=0
+                        _cada=$((_jan / novas))
+                        _i=0
+                        while IFS= read -r _l; do
+                            _i=$((_i + 1))
+                            [ "$_i" -ge "$novas" ] && break
+                            printf 't1\t%s\t%s\t%s\tfim\n' \
+                                "$(echo "$_l" | cut -f2)" "$_cada" \
+                                "$intervalo" >> "$FILA"
+                        done < "$PARCIAL"
+                        registrar "$novas linhas numa colheita so;" \
+                                  "${_jan}s repartidos, ${_cada}s para cada" \
+                                  "uma das $((novas - 1)) primeiras"
                     fi
+                    ultima_colheita=$(date +%s)
                     cat "$PARCIAL" >> "$FILA"
                     echo "$maior" > "$ESTADO"
                     # A última linha desta colheita é a faixa que ACABOU DE

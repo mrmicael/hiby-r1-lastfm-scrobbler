@@ -1400,6 +1400,26 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.17": {
+        "en": "skipping quickly no longer counts as listening. When several "
+              "tracks land in one look at the database — which is what fast "
+              "skipping does — they were being treated as tracks played while "
+              "the collector was not running, and that treatment assumes each "
+              "one played in full. Five tracks a minute apart all went up as "
+              "listened; it was reported with a screenshot. The real window "
+              "is shared out between them now: three rows arriving in 45 "
+              "seconds means nobody heard more than fifteen, and the 90% rule "
+              "throws all three out",
+        "pt": "pular depressa deixa de contar como escuta. Quando varias "
+              "faixas caem numa mesma olhada ao banco — que e o que pular "
+              "rapido faz — elas eram tratadas como faixas tocadas com o "
+              "coletor fora do ar, e esse tratamento supoe que cada uma tocou "
+              "inteira. Cinco faixas a um minuto uma da outra subiram todas "
+              "como ouvidas, e foi relatado com print. Agora a janela real e "
+              "repartida entre elas: tres linhas chegando em 45 segundos quer "
+              "dizer que ninguem ouviu mais que quinze, e a regra dos 90% "
+              "descarta as tres",
+    },
     "novidade.16": {
         "en": "the rule for a track that reached its own end was too loose. "
               "Between one track and the next there is a moment of silence, "

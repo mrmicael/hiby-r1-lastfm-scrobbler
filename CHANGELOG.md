@@ -1,5 +1,26 @@
 # Changes since the last release
 
+## Device version 17 — skipping quickly counted as listening
+
+> *"those two, Super Duper and Enemy: I didn't listen to them, I skipped them,
+> and they counted anyway"*
+
+Five tracks about a minute apart, all scrobbled.
+
+This came from the version 13 fix. When several rows land in a single look at
+the player's database — which is exactly what fast skipping produces — they
+were marked as tracks played while the collector was not running. That
+treatment reconstructs their times **backwards from each track's own length**,
+which credits every one of them in full.
+
+The real window is shared out between them now. Three rows arriving in 45
+seconds means nobody heard more than fifteen, and the 90% rule throws all three
+out.
+
+Nothing was added to the moment a track changes.
+
+---
+
 ## Device version 16 — a skip could disguise itself as an ending
 
 > *"see that I Heard It Through the Grapevine? I skipped it and it counted

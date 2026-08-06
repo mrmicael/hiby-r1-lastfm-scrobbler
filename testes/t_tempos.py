@@ -329,6 +329,25 @@ check("faixa velha sem fecho nao fica 'tocando' para sempre",
 
 print()
 print("=" * 74)
+print("6e. pular rapido nao pode virar escuta integral")
+print("=" * 74)
+# Relatado com print: cinco faixas a um minuto uma da outra, todas
+# contabilizadas. A causa era a correcao anterior — varias linhas numa
+# colheita iam com a1, e o a1 reconstroi supondo que cada faixa tocou
+# INTEIRA. Agora o daemon reparte a janela real: tres linhas em 45s viram
+# 15s para cada uma, e a regra dos 90% descarta as tres.
+PULOU = AGORA - 600
+fila = (f"b1\t{PULOU - 60}\n"
+        + p1(130, PULOU, "Pulei 1", 240) + "\n" + t1(130, 15) + "\n"
+        + p1(131, PULOU, "Pulei 2", 240) + "\n" + t1(131, 15) + "\n"
+        + p1(132, PULOU, "Pulei 3", 240) + "\n" + t1(132, 15) + "\n")
+r = rodar(fila, "pulou_rapido")
+for n in ("Pulei 1", "Pulei 2", "Pulei 3"):
+    check(f"{n}: 15s de 240s nao sobe", r[n]["status"] == "skipped",
+          f"{r[n]['seconds_heard']}s -> {r[n]['status']}")
+
+print()
+print("=" * 74)
 print("6c. duas faixas numa colheita so: a primeira NAO pode sair com zero")
 print("=" * 74)
 # Relato da vi: "a primeira faixa de qualquer album nunca sobe, sobe a
