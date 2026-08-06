@@ -1400,6 +1400,22 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.18": {
+        "en": "Tidal could crash the player. Getting a track's title from "
+              "Tidal's servers meant running curl right at the instant the "
+              "track changed — a memory spike landing exactly when the "
+              "device was already tightest on RAM, and it could take the "
+              "whole player down. That lookup now waits one cycle, so it "
+              "never lands on top of a track change, and it holds off if "
+              "the device is still short on memory when it tries",
+        "pt": "o Tidal podia travar o aparelho. Buscar o titulo de uma faixa "
+              "nos servidores do Tidal significava rodar o curl bem no "
+              "instante da troca de faixa — um pico de memoria caindo "
+              "justamente quando o aparelho ja estava mais apertado, e "
+              "podia derrubar o aparelho todo. Essa consulta agora espera "
+              "um ciclo, para nunca cair sobre uma troca de faixa, e recua "
+              "se a memoria ainda estiver curta quando for tentar",
+    },
     "novidade.17": {
         "en": "skipping quickly no longer counts as listening. When several "
               "tracks land in one look at the database — which is what fast "

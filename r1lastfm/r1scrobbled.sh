@@ -781,6 +781,24 @@ tem_rede() {
     return 1
 }
 
+# A consulta ao Tidal (curl + TLS) e o maior pico de RAM do daemon inteiro —
+# adiar para o ciclo seguinte (ver olhar_tidal) resolve a sobreposicao com a
+# troca de faixa, mas nao ajuda se a memoria ja estiver curta por outro
+# motivo. Lido do /proc com o `read` interno, sem awk nem grep: mesmo estilo
+# do tem_rede, mesmo custo (quase zero).
+MEM_MINIMA_KB=4000
+
+tem_memoria() {
+    [ -r /proc/meminfo ] || return 0
+    while read -r _chave _valor _resto; do
+        if [ "$_chave" = "MemAvailable:" ]; then
+            [ "$_valor" -ge "$MEM_MINIMA_KB" ] 2>/dev/null || return 1
+            return 0
+        fi
+    done < /proc/meminfo
+    return 0
+}
+
 # Tudo pronto para mandar? Sem chave de sessão não há o que fazer, e o
 # instalador é quem a coloca aqui.
 pode_enviar() {
@@ -1085,6 +1103,9 @@ olhar_tidal() {
         # vez por minuto. Assim rede instavel ou token renovado nao derrubam
         # nem fazem o daemon esquecer a faixa.
         [ "$t_agora" -lt "$tid_tentar" ] 2>/dev/null && return 0
+        # Memoria curta demais para arriscar o curl agora: espera o proximo
+        # ciclo, sem contar como falha (sem log, sem o recuo de um minuto).
+        tem_memoria || return 0
         _pend="$tid_pendente"
         if tidal_meta "$_pend"; then
             tid_pendente=""
