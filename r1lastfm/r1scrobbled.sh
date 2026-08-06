@@ -970,7 +970,7 @@ tidal_pais() {
         -H "Authorization: Bearer $t_tok" -H "Accept: application/json" \
         "https://$TIDAL_API/v1/sessions" 2>>"$LOG" \
         | tr ',' '\n' | grep countryCode | tr -d '"' | cut -d: -f2)
-    [ -n "$tid_pais" ] || return 1
+    case "$tid_pais" in [A-Za-z][A-Za-z]) ;; *) tid_pais=""; return 1 ;; esac
     echo "$tid_pais"
 }
 
@@ -1052,7 +1052,11 @@ olhar_tidal() {
     # no máximo um ciclo do fim real.
     if [ "$t_toca" = 0 ]; then
         if [ -n "$tid_id" ]; then
-            tidal_anotar "$t_agora" "$tid_desde"
+            # Só anota se os metadados eram mesmo desta faixa. Com a consulta
+            # adiada (ver abaixo), tid_art/tid_tit podem ainda ser os da faixa
+            # anterior — tid_pendente vazio é o que garante que já chegaram os
+            # certos.
+            [ -z "$tid_pendente" ] && tidal_anotar "$t_agora" "$tid_desde"
             tid_id=""; tid_desde=0
         fi
         return 0
@@ -1064,16 +1068,32 @@ olhar_tidal() {
     [ -n "$t_novo" ] || return 0
 
     if [ "$t_novo" != "$tid_id" ]; then
-        [ -n "$tid_id" ] && tidal_anotar "$t_agora" "$tid_desde"
+        # Mesma guarda: se a troca anterior nunca teve seus metadados
+        # buscados (pulo rápido, duas trocas no mesmo ciclo), tid_art/tid_tit
+        # ainda pertencem a uma faixa mais antiga — não escreve.
+        [ -n "$tid_id" ] && [ -z "$tid_pendente" ] && tidal_anotar "$t_agora" "$tid_desde"
         tid_id="$t_novo"
         tid_desde="$t_agora"
-        if tidal_meta "$t_novo"; then
+        # Nao executa curl no instante da troca: ele e o pico de RAM que
+        # derrubava o aparelho. A consulta fica para o proximo ciclo.
+        tid_pendente="$t_novo"
+        return 0
+    fi
+
+    if [ -n "$tid_pendente" ]; then
+        # Mantem a faixa depois de uma falha e tenta novamente no maximo uma
+        # vez por minuto. Assim rede instavel ou token renovado nao derrubam
+        # nem fazem o daemon esquecer a faixa.
+        [ "$t_agora" -lt "$tid_tentar" ] 2>/dev/null && return 0
+        _pend="$tid_pendente"
+        if tidal_meta "$_pend"; then
+            tid_pendente=""
+            tid_tentar=0
             [ "$AGORA" = 1 ] && anunciar_tidal
         else
-            # Sem metadados a faixa não vira scrobble. Acontece quando a rede
-            # cai no meio; a próxima troca tenta de novo.
-            registrar "tidal: nao consegui os dados da faixa $t_novo"
-            tid_id=""
+            tid_pais=""
+            tid_tentar=$((t_agora + 60))
+            registrar "tidal: nao consegui os dados da faixa $_pend; vou tentar de novo"
         fi
         return 0
     fi
@@ -1204,6 +1224,8 @@ pendente_desde=""
 # Quando foi a colheita anterior. É a janela que se reparte quando várias
 # faixas caem numa passada só.
 ultima_colheita=""
+tid_pendente=""
+tid_tentar=0
 if [ "$agora" -lt "$PISO" ]; then
     printf 'c1\t%s\n' "$agora" >> "$FILA"
     registrar "relogio em $agora, anterior ao piso $PISO: horas suspeitas"
