@@ -968,6 +968,15 @@ SEQ=$DIR/tidal_seq
 # HISTORY_TABLE, que crescem de um em um e estão na casa das centenas.
 TIDAL_BASE=1000000000
 
+# O mesmo seguro do MEDINDO, para o Tidal. Uma faixa do Tidal em curso só
+# existe na memória do daemon — sem isto, um reinicio no meio dela (e este
+# aparelho reinicia sozinho; ver o comentário do MEDINDO) apagava o começo
+# de verdade: o daemon voltava, via a mesma faixa ainda tocando, e passava a
+# contar a partir do reinicio em diante, não do começo real. Uma faixa de
+# tres minutos que sobrevivia um reinicio no segundo 30 media então menos de
+# 90% e nunca virava scrobble, mesmo tendo sido ouvida inteira.
+TID_MEDINDO=$DIR/tidal_medindo
+
 # O token, direto do arquivo do player. Nunca é registrado nem impresso.
 tidal_token() {
     [ -s "$TAT" ] || return 1
@@ -1044,6 +1053,38 @@ tidal_anotar() {
     fi
 }
 
+# Grava o ponto de partida da faixa do Tidal em curso, para o TID_MEDINDO
+# sobreviver a um reinicio. So chamado quando tid_desde/tid_art/tid_tit/
+# tid_alb/tid_dur ja estao certos e combinam entre si.
+tid_gravar_medindo() {
+    printf '%s\n%s\n%s\n%s\n%s\n%s\n' \
+        "$tid_id" "$tid_desde" "$tid_dur" "$tid_art" "$tid_tit" "$tid_alb" \
+        > "$TID_MEDINDO" 2>/dev/null || :
+}
+
+# A faixa do Tidal que ficou orfa de um reinicio entra na fila como faixa
+# fechada — mesma ideia do recuperar_medicao, adaptada: aqui nao ha segundos
+# medidos aos poucos, so o começo. Sem saber quando ela realmente terminou,
+# assume-se que tocou a duracao inteira, a mesma conta que o resto deste
+# arquivo ja faz para quem some sem marcador (ver o comentario do
+# anotar_medida). Regravar o TID_MEDINDO fica para o proximo olhar_tidal.
+recuperar_tidal() {
+    [ -f "$TID_MEDINDO" ] || return 0
+    _r_id=""; _r_desde=""; _r_dur=""; _r_art=""; _r_tit=""; _r_alb=""
+    { read -r _r_id; read -r _r_desde; read -r _r_dur; read -r _r_art
+      read -r _r_tit; read -r _r_alb; } < "$TID_MEDINDO" 2>/dev/null || :
+    rm -f "$TID_MEDINDO"
+    [ -n "$_r_id" ] && [ -n "$_r_art" ] && [ -n "$_r_tit" ] || return 0
+    case "$_r_desde" in ''|*[!0-9]*) return 0 ;; esac
+    case "$_r_dur" in ''|*[!0-9]*) _r_dur=0 ;; esac
+    [ "$_r_dur" -gt 0 ] || return 0
+    tid_id="$_r_id"; tid_art="$_r_art"; tid_tit="$_r_tit"
+    tid_alb="$_r_alb"; tid_dur="$_r_dur"
+    tidal_anotar "$((_r_desde + _r_dur))" "$_r_desde"
+    tid_id=""
+    registrar "tidal: faixa interrompida por reinicio, recuperada: $_r_art — $_r_tit"
+}
+
 # Uma volta do acompanhamento do Tidal.
 olhar_tidal() {
     # O portão fica aqui e não lá dentro: tanto o `r1collect tidal` quanto o
@@ -1076,6 +1117,7 @@ olhar_tidal() {
             # certos.
             [ -z "$tid_pendente" ] && tidal_anotar "$t_agora" "$tid_desde"
             tid_id=""; tid_desde=0
+            rm -f "$TID_MEDINDO"
         fi
         return 0
     fi
@@ -1090,6 +1132,7 @@ olhar_tidal() {
         # buscados (pulo rápido, duas trocas no mesmo ciclo), tid_art/tid_tit
         # ainda pertencem a uma faixa mais antiga — não escreve.
         [ -n "$tid_id" ] && [ -z "$tid_pendente" ] && tidal_anotar "$t_agora" "$tid_desde"
+        rm -f "$TID_MEDINDO"
         tid_id="$t_novo"
         tid_desde="$t_agora"
         # Nao executa curl no instante da troca: ele e o pico de RAM que
@@ -1110,6 +1153,9 @@ olhar_tidal() {
         if tidal_meta "$_pend"; then
             tid_pendente=""
             tid_tentar=0
+            # So agora tid_desde/tid_art/tid_tit/tid_alb/tid_dur combinam
+            # entre si: o momento certo de gravar o seguro contra reinicio.
+            tid_gravar_medindo
             [ "$AGORA" = 1 ] && anunciar_tidal
         else
             tid_pais=""
@@ -1127,6 +1173,9 @@ olhar_tidal() {
         t_fim=$((tid_desde + tid_dur))
         tidal_anotar "$t_fim" "$tid_desde"
         tid_desde=$t_fim
+        # tid_desde mudou; o seguro precisa acompanhar, ou um reinicio logo
+        # depois recuperaria com o começo antigo (e contaria tempo repetido).
+        tid_gravar_medindo
         [ "$AGORA" = 1 ] && anunciar_tidal
     fi
 }
@@ -1216,6 +1265,8 @@ printf 'b1\t%s\n' "$agora" >> "$FILA"
 # Sobrou medição de uma execução que não teve como se despedir? Ela vira faixa
 # fechada agora, antes de qualquer outra coisa mexer na fila.
 recuperar_medicao
+# O mesmo, para uma faixa do Tidal que estava em curso quando o daemon caiu.
+recuperar_tidal
 # Quantas colheitas esta execução já fez. A de número zero é a que encontra o
 # que tocou enquanto o daemon estava fora do ar — ver o comentário no laço.
 colheita=0
