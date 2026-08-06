@@ -1400,27 +1400,6 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
-    "novidade.19": {
-        "en": "Tidal tracks stopped scrobbling silently. The \"now playing\" "
-              "indicator worked, but the track playing when the device "
-              "restarted on its own — something it's known to do — lost its "
-              "real start time: the count resumed from the restart, not from "
-              "the beginning, so a fully-heard track measured under the 90% "
-              "needed to scrobble and was dropped for good, without any "
-              "message. A Tidal track in progress is now checkpointed the "
-              "same way local playback already was, so it survives a "
-              "restart and gets scrobbled for its full length",
-        "pt": "faixas do Tidal deixaram de scrobblar, sem aviso. O indicador "
-              "\"tocando agora\" funcionava, mas a faixa que estava tocando "
-              "quando o aparelho reiniciava sozinho — o que ele já é sabido "
-              "fazer — perdia o começo de verdade: a contagem recomeçava do "
-              "reinicio, não do início, então uma faixa ouvida inteira media "
-              "menos que os 90% exigidos para scrobblar e era descartada "
-              "para sempre, sem nenhuma mensagem. Uma faixa do Tidal em "
-              "curso agora fica marcada do mesmo jeito que a faixa local já "
-              "ficava, e sobrevive a um reinicio, sendo scrobblada pela "
-              "duração inteira",
-    },
     "novidade.18": {
         "en": "Tidal could crash the player. Getting a track's title from "
               "Tidal's servers meant running curl right at the instant the "
