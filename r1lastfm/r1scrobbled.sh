@@ -1117,7 +1117,10 @@ olhar_tidal() {
             # certos.
             [ -z "$tid_pendente" ] && tidal_anotar "$t_agora" "$tid_desde"
             tid_id=""; tid_desde=0
-            rm -f "$TID_MEDINDO"
+            # Truncar (builtin, sem fork) em vez de `rm` (bin externo): isto
+            # roda no instante da troca, o pico de RAM que o curl adiado já
+            # evita — um fork aqui reintroduziria o mesmo risco.
+            : > "$TID_MEDINDO" 2>/dev/null || :
         fi
         return 0
     fi
@@ -1132,7 +1135,7 @@ olhar_tidal() {
         # buscados (pulo rápido, duas trocas no mesmo ciclo), tid_art/tid_tit
         # ainda pertencem a uma faixa mais antiga — não escreve.
         [ -n "$tid_id" ] && [ -z "$tid_pendente" ] && tidal_anotar "$t_agora" "$tid_desde"
-        rm -f "$TID_MEDINDO"
+        : > "$TID_MEDINDO" 2>/dev/null || :
         tid_id="$t_novo"
         tid_desde="$t_agora"
         # Nao executa curl no instante da troca: ele e o pico de RAM que
