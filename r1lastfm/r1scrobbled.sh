@@ -1080,12 +1080,17 @@ recuperar_tidal() {
     _r_id=""; _r_desde=""; _r_dur=""; _r_art=""; _r_tit=""; _r_alb=""
     { read -r _r_id; read -r _r_desde; read -r _r_dur; read -r _r_art
       read -r _r_tit; read -r _r_alb; } < "$TID_MEDINDO" 2>/dev/null || :
-    rm -f "$TID_MEDINDO"
+    # Truncar (builtin), nao `rm` (fork): isto roda na partida, junto com o
+    # resto desta funcao — o mesmo motivo que tirou o fork do r1send de
+    # aqui tira este tambem.
+    : > "$TID_MEDINDO" 2>/dev/null || :
     [ -n "$_r_id" ] && [ -n "$_r_art" ] && [ -n "$_r_tit" ] || return 0
     case "$_r_desde" in ''|*[!0-9]*) return 0 ;; esac
     case "$_r_dur" in ''|*[!0-9]*) _r_dur=0 ;; esac
     [ "$_r_dur" -gt 0 ] || return 0
-    _r_seq=$(cat "$SEQ" 2>/dev/null)
+    # `read` builtin em vez de `cat` (fork) — mesmo motivo, mesmo lugar.
+    _r_seq=""
+    read -r _r_seq < "$SEQ" 2>/dev/null || :
     case "$_r_seq" in ''|*[!0-9]*) _r_seq=0 ;; esac
     _r_seq=$((_r_seq + 1))
     echo "$_r_seq" > "$SEQ"
