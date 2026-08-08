@@ -1403,5 +1403,117 @@ check("e o pendente saiu do arquivo depois de resolvido",
 
 print()
 print("=" * 74)
+print("14. um monte de pendentes nao fica saindo de minuto em minuto")
+print("=" * 74)
+# O tidal_resolver tira UMA faixa por volta, para nunca haver dois processos
+# grandes ao mesmo tempo. Mas o laco desacelera para LENTO=60s depois de
+# QUIETOS voltas paradas — e com o audio parado ele esta parado por definicao.
+# Sem esta regra, uma sessao de vinte faixas levaria um quarto de hora para
+# terminar de aparecer no Last.fm.
+#
+# O teste poe seis pendentes de uma vez, com o audio ja parado, e cobra que
+# tenham saido TODAS numa janela curta demais para o ritmo lento.
+script17 = f"""
+pkill -f "{T}/tidn/rs" 2>/dev/null || true
+sleep 1
+rm -rf {T}/tidn; mkdir -p {T}/tidn/scrobble {T}/tidn/tmp
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/tidn/scrobble/real
+chmod 755 {T}/tidn/scrobble/real
+cat > {T}/tidn/scrobble/r1collect <<'FIMFALSO'
+{FALSO_TIDAL.replace("CTRLTID", T + "/tidn/ctrltid")
+            .replace("CTRL", T + "/tidn/ctrl")
+            .replace("REAL", T + "/tidn/scrobble/real")}
+FIMFALSO
+cat > {T}/tidn/scrobble/curl <<'FIMCURL'
+{CURL_FALSO.replace("REGISTRO", T + "/tidn/curl.log")}
+FIMCURL
+cat > {T}/tidn/scrobble/r1send <<'FIMSEND'
+#!/bin/sh
+case "$1" in
+tidalinfo) printf 'Artista X\\nTitulo Y\\nAlbum Z\\n200\\n' ;;
+esac
+exit 0
+FIMSEND
+chmod 755 {T}/tidn/scrobble/r1collect {T}/tidn/scrobble/curl \\
+          {T}/tidn/scrobble/r1send
+
+cp {r.to_posix_path(WORK)}/sim1.db {T}/tidn/banco.db
+echo chave > {T}/tidn/scrobble/sk
+echo seg   > {T}/tidn/scrobble/segredo
+echo api   > {T}/tidn/scrobble/apikey
+echo cert  > {T}/tidn/scrobble/cacert.pem
+printf 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\n' \\
+    > {T}/tidn/tat
+echo ini > {T}/tidn/user.ini
+
+# Audio PARADO desde o inicio, e o id do Tidal presente. Seis faixas ja
+# terminadas esperando os metadados — o retrato de quem ouviu um album e
+# desligou.
+printf 'pcm=0\\n\\n' > {T}/tidn/ctrl
+echo 700 > {T}/tidn/ctrltid
+ag=$(date +%s)
+i=1
+while [ $i -le 6 ]; do
+    printf '%s\\t%s\\t%s\\n' "$((700 + i))" "$((ag - 400 + i * 30))" \\
+        "$((ag - 400 + i * 30 + 200))" >> {T}/tidn/scrobble/tidal_pend
+    i=$((i + 1))
+done
+
+sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/tidn/scrobble#' \\
+    -e 's#^DB=.*#DB={T}/tidn/banco.db#' \\
+    -e 's#^DB_INTERNO=.*#DB_INTERNO={T}/tidn/banco.db#' \\
+    -e 's#^MAIS=.*#MAIS={T}/tidn/nada.db#' \\
+    -e 's#^CARTOES=.*#CARTOES="{T}/tidn/sd"#' \\
+    -e 's#^COPIA=.*#COPIA={T}/tidn/tmp/c.db#' \\
+    -e 's#^PARCIAL=.*#PARCIAL={T}/tidn/tmp/p.tsv#' \\
+    -e 's#^LOG=.*#LOG={T}/tidn/tmp/log#' \\
+    -e 's#^TICK=.*#TICK={T}/tidn/tmp/tick#' \\
+    -e 's#^TRAVA=.*#TRAVA={T}/tidn/tmp/rodando#' \\
+    -e 's#^TAT=.*#TAT={T}/tidn/tat#' \\
+    -e 's#^TIDAL_INI=.*#TIDAL_INI={T}/tidn/user.ini#' \\
+    -e 's#^TIDAL_JSON=.*#TIDAL_JSON={T}/tidn/tmp/tj#' \\
+    -e 's#^CACERT_SD=.*#CACERT_SD={T}/tidn/nao-existe.pem#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^ASSENTAR=5#ASSENTAR=1#' \\
+    -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' \\
+    -e 's#^QUIETOS=8#QUIETOS=2#' \\
+    {p} > {T}/tidn/rs
+chmod 755 {T}/tidn/rs
+
+# LENTO fica nos 60s de verdade: e justamente ele que nao pode governar o
+# ritmo enquanto ha pendente. Com QUIETOS=2 o laco iria para LENTO quase
+# imediatamente, e sem a regra nova as seis faixas levariam seis minutos.
+busybox ash {T}/tidn/rs &
+PID=$!
+sleep 25
+kill -TERM $PID 2>/dev/null
+sleep 2
+echo "=== QUANTAS SAIRAM EM 25s ==="
+echo "NA_FILA=$(grep -c 'tidal:' {T}/tidn/scrobble/fila.tsv 2>/dev/null || echo 0)"
+echo "SOBRARAM=$(wc -l < {T}/tidn/scrobble/tidal_pend 2>/dev/null || echo 0)"
+"""
+res17 = r.posix_script(script17, name="daemon-tidal-ritmo", mutating=False,
+                       quiet=True, timeout=180)
+print("\n".join("   " + l for l in res17.stdout.splitlines()[:8]))
+
+def _num(saida, chave):
+    for l in saida.splitlines():
+        if l.strip().startswith(chave + "="):
+            try:
+                return int(l.strip().split("=", 1)[1])
+            except ValueError:
+                return -1
+    return -1
+
+_n_fila = _num(res17.stdout, "NA_FILA")
+_n_resto = _num(res17.stdout, "SOBRARAM")
+check("as seis faixas pendentes sairam em 25s, e nao uma por minuto",
+      _n_fila == 6,
+      f"{_n_fila} de 6 — no ritmo lento o resto so apareceria minutos depois")
+check("e o arquivo de pendentes ficou vazio",
+      _n_resto == 0, f"sobraram {_n_resto}")
+
+
+print()
+print("=" * 74)
 print("FALHAS:", falhas if falhas else "nenhuma")
 sys.exit(1 if falhas else 0)

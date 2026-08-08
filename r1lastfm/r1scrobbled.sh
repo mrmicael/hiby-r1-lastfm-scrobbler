@@ -1911,6 +1911,18 @@ FIM_ESTADO
         fi
     fi
 
+    # Com faixas do Tidal esperando os metadados, o laço fica no ritmo rápido.
+    #
+    # O tidal_resolver tira UMA por volta, de propósito — é o que garante que
+    # nunca haja dois processos grandes ao mesmo tempo. Mas a 60 s por volta,
+    # uma sessão de vinte faixas levaria um quarto de hora para terminar de
+    # aparecer no Last.fm; a 15 s leva cinco minutos.
+    #
+    # Isto não é ficar acordado à toa: enquanto há pendente, há trabalho de
+    # verdade a fazer a cada volta. E quando o arquivo esvazia, o laço volta a
+    # desacelerar sozinho.
+    [ -s "$PEND_TIDAL" ] && intervalo=$RAPIDO
+
     # Pausar não é parar, e o aparelho diz a diferença.
     #
     # Fechar a faixa no primeiro segundo de silêncio foi o que produziu o
