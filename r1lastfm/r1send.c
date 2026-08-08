@@ -50,7 +50,14 @@ typedef unsigned long long u64;
 
 #define MAX_EXEC   4096
 #define LOTE       50
-#define TXT        512
+/* Cada faixa carrega QUATRO destes (artista, título, álbum, artista do
+ * álbum), então este número multiplica por quatro o custo de cada entrada da
+ * fila. Era 512, o que dava 2 KB por faixa só de texto; numa fila de 463
+ * faixas — o tamanho real da fila de um R1 em uso — são 950 KB de texto para
+ * guardar nomes que quase nunca passam de 60 caracteres.
+ *
+ * 256 continua sendo o dobro do que o Last.fm aceita nesses campos. */
+#define TXT        256
 #define MIN_FAIXA  30
 #define CHEIA      240
 /* Quanto da faixa é preciso ter ouvido, em porcento.
@@ -231,11 +238,60 @@ typedef struct {
     char album_artista[TXT];
 } Exec;
 
+/* A fila cresce conforme o que existe, e não já no pior caso.
+ *
+ * Isto era `Exec v[MAX_EXEC]` — um vetor fixo de 4096 entradas dentro de um
+ * struct alocado com calloc. São uns 8,7 MB, e o calloc ZERA tudo, o que
+ * torna cada página residente na hora: 8,4 MB de RSS mesmo para uma fila de
+ * dez faixas.
+ *
+ * Num R1 isso não é desperdício, é o defeito. O log do kernel de um
+ * travamento, com o Tidal tocando:
+ *
+ *   HiBy_Main_Threa invoked oom-killer: gfp_mask=0x24201ca, order=0
+ *   [ 5122] ... 2193 2105 ... r1send          <- 8,4 MB residentes
+ *   [  961] ... 68995 4836 ... system_main_thr
+ *   Normal free:928kB min:940kB ... all_unreclaimable? yes
+ *   Killed process 961 (system_main_thr)
+ *
+ * O `order=0` diz que não era um bloco grande faltando: era memória mesmo. O
+ * r1send empurrava o sistema abaixo da marca mínima, e o kernel matava o
+ * player por ser o maior processo. O supervisor do firmware o reiniciava e,
+ * depois de cinco vezes, reiniciava o aparelho — o "travamento".
+ *
+ * E o `anunciar_tidal` roda o r1send ANTES de ir à rede, e é por isso que
+ * travava exatamente no instante do "tocando agora".
+ *
+ * Crescendo aos poucos, uma fila de dez faixas custa 21 KB em vez de 8,4 MB.
+ * O teto continua existindo, para uma fila enorme não repetir o problema por
+ * outro caminho. */
 typedef struct {
-    Exec  v[MAX_EXEC];
+    Exec *v;
+    int   cap;
     int   n;
     long  suspeito_ate;
 } Fila;
+
+/* Garante lugar para mais uma. Devolve 0 quando não dá — por falta de
+ * memória ou por teto —, e aí quem chama para de ler. */
+static int fila_cabe(Fila *f)
+{
+    int novo;
+    Exec *maior;
+
+    if (f->n < f->cap) return 1;
+    if (f->cap >= MAX_EXEC) return 0;
+
+    novo = f->cap ? f->cap * 2 : 32;
+    if (novo > MAX_EXEC) novo = MAX_EXEC;
+    maior = (Exec *)realloc(f->v, (size_t)novo * sizeof(Exec));
+    if (!maior) return 0;
+    /* O resto do código conta com campos zerados nas entradas novas. */
+    memset(maior + f->cap, 0, (size_t)(novo - f->cap) * sizeof(Exec));
+    f->v = maior;
+    f->cap = novo;
+    return 1;
+}
 
 static void desescapa(const char *s, char *out, size_t lim)
 {
@@ -450,7 +506,7 @@ static int carregar(const char *caminho, Fila *f)
             continue;
         }
         if (strcmp(c[0], "p1") || nc < 10) continue;
-        if (f->n >= MAX_EXEC) break;
+        if (!fila_cabe(f)) break;
         {
             Exec *e = &f->v[f->n];
             memset(e, 0, sizeof(*e));

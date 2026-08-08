@@ -1337,7 +1337,7 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/tid/scrobble#' \\
     -e 's#^TIDAL_JSON=.*#TIDAL_JSON={T}/tid/tmp/tj#' \\
     -e 's#^CACERT_SD=.*#CACERT_SD={T}/tid/nao-existe.pem#' \\
     -e 's#^AGORA=0#AGORA=1#' \\
-    -e 's#^REDE_NO_TIDAL=0#REDE_NO_TIDAL=1#' \\
+    -e 's#^REDE_NO_TIDAL=.*#REDE_NO_TIDAL=1#' \\
     -e 's#^RAPIDO=15#RAPIDO=2#' -e 's#^ASSENTAR=5#ASSENTAR=1#' \\
     -e 's#^CALMA=20#CALMA=6#' \\
     -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=2#' \\
@@ -1499,7 +1499,7 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/tidp/scrobble#' \\
     {p} > {T}/tidp/rs
 chmod 755 {T}/tidp/rs
 # Conferindo que o padrao NAO foi alterado por engano neste arquivo.
-grep -q '^REDE_NO_TIDAL=0' {T}/tidp/rs && echo "PADRAO=0" || echo "PADRAO=OUTRO"
+grep -q '^REDE_NO_TIDAL=auto' {T}/tidp/rs && echo "PADRAO=auto" || echo "PADRAO=OUTRO"
 
 busybox ash {T}/tidp/rs &
 PID=$!
@@ -1521,9 +1521,9 @@ res18 = r.posix_script(script18, name="daemon-tidal-padrao", mutating=False,
                        quiet=True, timeout=180)
 print("\n".join("   " + l for l in res18.stdout.splitlines()[:12]))
 
-check("o padrao de fabrica e nao usar rede com o Tidal tocando",
-      "PADRAO=0" in res18.stdout,
-      "REDE_NO_TIDAL nao esta em 0 no arquivo entregue")
+check("o padrao de fabrica e 'so quando nao custa processo'",
+      "PADRAO=auto" in res18.stdout,
+      "REDE_NO_TIDAL nao esta em 'auto' no arquivo entregue")
 check("e com ele, nenhuma requisicao sai durante a reproducao",
       bloco(res18.stdout, "=== CURL COM O TIDAL TOCANDO ===") == "CHAMADAS=0",
       bloco(res18.stdout, "=== CURL COM O TIDAL TOCANDO ==="))
@@ -1646,6 +1646,126 @@ check("as seis faixas pendentes sairam em 25s, e nao uma por minuto",
       f"{_n_fila} de 6 — no ritmo lento o resto so apareceria minutos depois")
 check("e o arquivo de pendentes ficou vazio",
       _n_resto == 0, f"sobraram {_n_resto}")
+
+
+print()
+print("=" * 74)
+print("15. com o r1net de pe, a rede deixa de criar processos")
+print("=" * 74)
+# O ajudante residente e a resposta ao travamento: ele sobe no boot, quando ha
+# 22 MB livres, e depois fica parado num fifo com a conexao TLS aberta. O que
+# este teste cobra e o essencial — que o daemon PASSE A USA-LO, e que o curl
+# nao seja mais criado no meio da reproducao.
+#
+# O pedido em si vai falhar: o host aqui nao existe. Nao faz mal. O que se
+# esta medindo e quem foi chamado, nao se a resposta veio.
+# O caminho e expandido pelo shell do LADO POSIX, nao aqui: o interpretador
+# roda no Windows e o `~` dele aponta para outro lugar.
+_r1net = "$HOME/.cache/r1tls/r1net"
+_ca_sistema = "/etc/ssl/certs/ca-certificates.crt"
+_tem = r.posix_script(
+    f'[ -x {_r1net} ] && [ -s {_ca_sistema} ] && echo TEM || echo NAO',
+    name="tem-r1net", mutating=False, quiet=True, timeout=30).stdout
+
+if "TEM" not in _tem:
+    print("   PULADO: compile o ajudante antes com r1lastfm/build_r1net.sh")
+    print(f"            (procurei em {_r1net})")
+else:
+    script19 = f"""
+pkill -f "{T}/aj/rs" 2>/dev/null || true
+pkill -f r1net 2>/dev/null || true
+sleep 1
+rm -rf {T}/aj; mkdir -p {T}/aj/scrobble {T}/aj/tmp
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/aj/scrobble/real
+cp {_r1net} {T}/aj/scrobble/r1net
+chmod 755 {T}/aj/scrobble/real {T}/aj/scrobble/r1net
+cat > {T}/aj/scrobble/r1collect <<'FIMFALSO'
+{FALSO_TIDAL.replace("CTRLTID", T + "/aj/ctrltid")
+            .replace("CTRL", T + "/aj/ctrl")
+            .replace("REAL", T + "/aj/scrobble/real")}
+FIMFALSO
+cat > {T}/aj/scrobble/curl <<'FIMCURL'
+{CURL_FALSO.replace("REGISTRO", T + "/aj/curl.log")}
+FIMCURL
+cat > {T}/aj/scrobble/r1send <<'FIMSEND'
+#!/bin/sh
+case "$1" in
+tidalinfo) printf 'Artista X\\nTitulo Y\\nAlbum Z\\n200\\n' ;;
+esac
+exit 0
+FIMSEND
+chmod 755 {T}/aj/scrobble/r1collect {T}/aj/scrobble/curl \\
+          {T}/aj/scrobble/r1send
+
+cp {r.to_posix_path(WORK)}/sim1.db {T}/aj/banco.db
+echo chave > {T}/aj/scrobble/sk
+echo seg   > {T}/aj/scrobble/segredo
+echo api   > {T}/aj/scrobble/apikey
+# Certificados de VERDADE: com um arquivo de mentira o r1net nao sobe, e o
+# teste passaria a medir a queda para o curl em vez do caminho novo.
+cp {_ca_sistema} {T}/aj/scrobble/cacert.pem
+printf 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\n' \\
+    > {T}/aj/tat
+echo ini > {T}/aj/user.ini
+printf 'pcm=1\\n\\n' > {T}/aj/ctrl
+echo 111 > {T}/aj/ctrltid
+
+sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/aj/scrobble#' \\
+    -e 's#^DB=.*#DB={T}/aj/banco.db#' \\
+    -e 's#^DB_INTERNO=.*#DB_INTERNO={T}/aj/banco.db#' \\
+    -e 's#^MAIS=.*#MAIS={T}/aj/nada.db#' \\
+    -e 's#^CARTOES=.*#CARTOES="{T}/aj/sd"#' \\
+    -e 's#^COPIA=.*#COPIA={T}/aj/tmp/c.db#' \\
+    -e 's#^PARCIAL=.*#PARCIAL={T}/aj/tmp/p.tsv#' \\
+    -e 's#^LOG=.*#LOG={T}/aj/tmp/log#' \\
+    -e 's#^TICK=.*#TICK={T}/aj/tmp/tick#' \\
+    -e 's#^TRAVA=.*#TRAVA={T}/aj/tmp/rodando#' \\
+    -e 's#^TAT=.*#TAT={T}/aj/tat#' \\
+    -e 's#^TIDAL_INI=.*#TIDAL_INI={T}/aj/user.ini#' \\
+    -e 's#^TIDAL_JSON=.*#TIDAL_JSON={T}/aj/tmp/tj#' \\
+    -e 's#^CACERT_SD=.*#CACERT_SD={T}/aj/nao-existe.pem#' \\
+    -e 's#^FIFO_PED=.*#FIFO_PED={T}/aj/tmp/ped#' \\
+    -e 's#^FIFO_RESP=.*#FIFO_RESP={T}/aj/tmp/resp#' \\
+    -e 's#^CAB_TIDAL=.*#CAB_TIDAL={T}/aj/tmp/cab#' \\
+    -e 's#^TIDAL_API=.*#TIDAL_API=nao.existe.invalido#' \\
+    -e 's#^API_HOST=.*#API_HOST=nao.existe.invalido#' \\
+    -e 's#^AGORA=0#AGORA=1#' \\
+    -e 's#^REDE_NO_TIDAL=.*#REDE_NO_TIDAL=1#' \\
+    -e 's#^RAPIDO=15#RAPIDO=2#' -e 's#^ASSENTAR=5#ASSENTAR=1#' \\
+    -e 's#^CALMA=20#CALMA=4#' \\
+    -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=2#' \\
+    {p} > {T}/aj/rs
+chmod 755 {T}/aj/rs
+
+busybox ash {T}/aj/rs &
+PID=$!
+sleep 25
+kill -TERM $PID 2>/dev/null
+sleep 1
+pkill -f "{T}/aj/scrobble/r1net" 2>/dev/null || true
+sleep 1
+echo "=== O AJUDANTE SUBIU? ==="
+grep -c 'r1net de pe' {T}/aj/tmp/log 2>/dev/null || echo 0
+echo "=== O CURL FOI CRIADO? ==="
+echo "CHAMADAS=$(wc -l < {T}/aj/curl.log 2>/dev/null || echo 0)"
+echo "=== O AJUDANTE TENTOU FALAR? ==="
+grep -c 'nao.existe.invalido' {T}/aj/tmp/log 2>/dev/null || echo 0
+"""
+    res19 = r.posix_script(script19, name="daemon-ajudante", mutating=False,
+                           quiet=True, timeout=180)
+    print("\n".join("   " + l for l in res19.stdout.splitlines()[:10]))
+
+    check("o daemon subiu o ajudante residente",
+          bloco(res19.stdout, "=== O AJUDANTE SUBIU? ===") not in ("0", ""),
+          "o daemon nao registrou 'r1net de pe' — caiu para o curl")
+    check("e nenhum curl foi criado",
+          bloco(res19.stdout, "=== O CURL FOI CRIADO? ===") == "CHAMADAS=0",
+          bloco(res19.stdout, "=== O CURL FOI CRIADO? ===")
+          + " — a rede ainda esta nascendo processo no meio da reproducao")
+    check("a rede passou mesmo pelo ajudante",
+          bloco(res19.stdout, "=== O AJUDANTE TENTOU FALAR? ===")
+          not in ("0", ""),
+          "o r1net nunca recebeu pedido nenhum")
 
 
 print()

@@ -1400,6 +1400,43 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.23": {
+        "en": "the crash is found, and it was ours. The kernel log of a real "
+              "freeze says it plainly: the player did not run out of "
+              "contiguous memory, it was KILLED by the out-of-memory killer, "
+              "for a single 4 KB page. And the table in that report shows why "
+              "— r1send was holding 8.4 MB resident. It reserved room for "
+              "4096 tracks up front and zeroed all of it, so even a queue of "
+              "ten cost the full 8.4 MB. On a device with under 2 MB free "
+              "while music plays, that is what pushed it over, and the kernel "
+              "killed the biggest process, which was the player. Five deaths "
+              "in a row and the firmware's supervisor reboots the device — "
+              "the \"freeze\". And since announcing a track runs r1send "
+              "first, that is why it froze at the exact moment of the "
+              "announcement. The queue now grows as it fills: ten tracks cost "
+              "21 KB. There is also a new resident network helper (r1net) "
+              "that keeps one TLS connection open, so going to the network no "
+              "longer creates a process at all: 421 KB of program against "
+              "curl's 1.6 MB, and requests after the first cost nothing",
+        "pt": "o travamento foi achado, e era nosso. O log do kernel de um "
+              "travamento de verdade diz sem rodeio: o player nao ficou sem "
+              "bloco contiguo, ele foi MORTO pelo matador de falta de "
+              "memoria, por uma unica pagina de 4 KB. E a tabela desse "
+              "relatorio mostra o porque — o r1send estava com 8,4 MB "
+              "residentes. Ele reservava lugar para 4096 faixas de uma vez e "
+              "zerava tudo, entao ate uma fila de dez custava os 8,4 MB "
+              "inteiros. Num aparelho com menos de 2 MB livres tocando "
+              "musica, e isso que estourava, e o kernel matava o maior "
+              "processo, que era o player. Cinco mortes seguidas e o "
+              "supervisor do firmware reinicia o aparelho — o \"travamento\". "
+              "E como anunciar uma faixa roda o r1send antes, e por isso que "
+              "travava no instante exato do anuncio. Agora a fila cresce "
+              "conforme enche: dez faixas custam 21 KB. Tambem entrou um "
+              "ajudante de rede residente (o r1net), que mantem uma conexao "
+              "TLS aberta, entao ir a rede deixou de criar processo: 421 KB "
+              "de programa contra 1,6 MB do curl, e os pedidos depois do "
+              "primeiro nao custam nada",
+    },
     "novidade.22": {
         "en": "the Tidal \"now playing\" is off by default again, because it "
               "still froze a real device — at the exact instant the "

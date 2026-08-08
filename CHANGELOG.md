@@ -1,5 +1,67 @@
 # Changes since the last release
 
+## Device version 23 — the crash was ours, and the kernel said so
+
+Six versions of guessing ended the moment the kernel log of a real freeze was
+captured. It does not need interpreting:
+
+```
+HiBy_Main_Threa invoked oom-killer: gfp_mask=0x24201ca, order=0
+[ 5122]  ...  2193  2105 ...  r1send            <- 8.4 MB resident
+[  961]  ... 68995  4836 ...  system_main_thr
+Normal free:928kB min:940kB ... all_unreclaimable? yes
+Killed process 961 (system_main_thr)
+```
+
+**`order=0`.** The failing allocation was a single 4 KB page. Every
+fragmentation theory in versions 18 through 22 — including the one that
+justified turning "now playing" off — was wrong. This was plain memory
+exhaustion, and the kernel killed the largest process, which is the player.
+Five deaths in a row and the firmware's supervisor reboots the device. That is
+the "freeze".
+
+And the process that pushed it over was **ours**:
+
+```c
+#define MAX_EXEC 4096
+#define TXT      512
+typedef struct { Exec v[MAX_EXEC]; ... } Fila;   /* 4 text fields each */
+```
+
+4096 × ~2128 bytes ≈ 8.7 MB, allocated with `calloc`, which **zeroes it** —
+so every page is resident immediately. A queue of ten tracks cost the same
+8.4 MB as a queue of four thousand. On a device with under 2 MB free while
+music plays, that is the whole story.
+
+It also explains the symptom that made no sense: `anunciar_tidal` runs
+`r1send` *before* it touches the network, which is why it froze at the exact
+instant of the announcement. It was never `curl`.
+
+**The fix:** the queue grows as it fills, starting at 32 entries, and the text
+fields are 256 bytes instead of 512 (still double what Last.fm accepts). Ten
+tracks now cost 21 KB.
+
+### And a resident network helper
+
+`r1net` is new: it starts at boot, when there are 22 MB free, parses the
+certificate bundle and builds its TLS contexts once, then sits on a fifo with
+the connection to Last.fm held open. Sending a request became writing a line to
+an already-open descriptor — `printf` and redirection are shell builtins, so no
+process is created at all.
+
+Measured on the device: 421 KB of program (curl is 1,643,940 bytes), 688 KB
+resident, and **the resident size does not grow between requests**.
+
+Because of it, `REDE_NO_TIDAL` now defaults to `auto`: the "now playing" on
+Tidal happens when it costs no new process, and not otherwise. The permission
+follows the cost instead of a guess.
+
+The calm-window machinery from version 21 stays in place regardless — nothing
+in the first 20 seconds of a track, nothing at the instant of a change, never
+two requests in one cycle.
+
+---
+
 ## Device version 22 — the Tidal announcement is off by default again
 
 Version 21 put "now playing" back on Tidal, 20 seconds clear of the track
