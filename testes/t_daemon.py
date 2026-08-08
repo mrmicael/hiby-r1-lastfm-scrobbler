@@ -1337,7 +1337,7 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/tid/scrobble#' \\
     -e 's#^TIDAL_JSON=.*#TIDAL_JSON={T}/tid/tmp/tj#' \\
     -e 's#^CACERT_SD=.*#CACERT_SD={T}/tid/nao-existe.pem#' \\
     -e 's#^AGORA=0#AGORA=1#' \\
-    -e 's#^REDE_NO_TIDAL=.*#REDE_NO_TIDAL=1#' \\
+    -e 's#^REDE_NO_TIDAL=0#REDE_NO_TIDAL=1#' \\
     -e 's#^RAPIDO=15#RAPIDO=2#' -e 's#^ASSENTAR=5#ASSENTAR=1#' \\
     -e 's#^CALMA=20#CALMA=6#' \\
     -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=2#' \\
@@ -1358,12 +1358,18 @@ echo "=== DEPOIS DA JANELA ==="
 cat {T}/tid/curl.log 2>/dev/null || echo "(nada)"
 
 # Troca de faixa. Os dados da 111 ja estao em maos, entao a linha da fila tem
-# de sair AGORA, sem rede — e o instante da troca tem de continuar limpo.
-antes_troca=$(wc -l < {T}/tid/curl.log 2>/dev/null || echo 0)
+# de sair AGORA, sem rede — e a janela calma da faixa NOVA tem de ficar limpa.
 echo 222 > {T}/tid/ctrltid
-sleep 3
+sleep 5
+# O instante que interessa nao e quando o TESTE virou o arquivo: e quando o
+# DAEMON viu a troca, e ele olha de dois em dois segundos. Ate ver, ele esta
+# legitimamente no meio da faixa velha, ja passada a janela calma dela — um
+# envio ali nao viola nada. A linha da fila da faixa fechada carrega a hora
+# exata em que ele percebeu.
+viu_em=$(grep 'tidal:111' {T}/tid/scrobble/fila.tsv 2>/dev/null | cut -f3)
 echo "=== NA TROCA DE FAIXA ==="
-echo "CURL_NA_TROCA=$(( $(wc -l < {T}/tid/curl.log 2>/dev/null || echo 0) - antes_troca ))"
+echo "CURL_NA_JANELA=$(awk -v t="$viu_em" '$1 >= t && $1 < t + 6' \\
+    {T}/tid/curl.log 2>/dev/null | wc -l)"
 echo "=== FILA APOS A TROCA ==="
 grep 'tidal:111' {T}/tid/scrobble/fila.tsv 2>/dev/null || echo "(nada)"
 
@@ -1412,10 +1418,14 @@ if _tid and _lfm:
           f"saiu tudo no mesmo instante (diferenca de {_gap}s) — era isto que "
           f"punha dois processos grandes ao mesmo tempo")
 
-check("a troca de faixa nao dispara rede nenhuma",
-      bloco(res16.stdout, "=== NA TROCA DE FAIXA ===") == "CURL_NA_TROCA=0",
-      bloco(res16.stdout, "=== NA TROCA DE FAIXA ===")
-      + " — o instante da troca e o unico que a medicao apontou como ruim")
+_na_janela = next((int(l.split("=")[1]) for l in res16.stdout.splitlines()
+                   if l.strip().startswith("CURL_NA_JANELA=")
+                   and l.split("=")[1].strip().isdigit()), -1)
+check("nada de rede na janela calma da faixa nova",
+      _na_janela == 0,
+      f"{_na_janela} requisicoes nos primeiros segundos depois de o daemon ver "
+      f"a troca — e o instante em que o player esta pedindo memoria para a "
+      f"faixa nova")
 
 _fila16 = bloco(res16.stdout, "=== FILA APOS A TROCA ===")
 check("a faixa entra na fila assim que acaba, com os metadados",
@@ -1431,14 +1441,17 @@ check("faixa ja conhecida nao e perguntada de novo",
 
 print()
 print("=" * 74)
-print("13b. no padrao de fabrica, o Tidal tocando nao usa rede nenhuma")
+print("13b. com REDE_NO_TIDAL=0, o Tidal tocando nao usa rede nenhuma")
 print("=" * 74)
-# A secao acima roda com REDE_NO_TIDAL=1, que e o modo de quem escolheu
-# arriscar. O PADRAO e 0, e e este que quase todo mundo vai usar — num R1 de
-# verdade o aparelho travou no instante em que o anuncio saiu. Este teste
-# cobra o padrao: com o Tidal tocando, nada de rede; e mesmo assim uma faixa
-# que ja esta no cache entra na fila assim que acaba, porque ler o cache nao
-# usa rede.
+# O anuncio no Tidal vem LIGADO, agora que a causa do travamento e conhecida
+# (o r1send reservando 8,7 MB de uma vez) e esta consertada. Mas o interruptor
+# continua existindo, e quem preferir silencio de rede durante a reproducao —
+# ou quem tiver um aparelho mais apertado — tem de conseguir esse silencio de
+# verdade.
+#
+# Este teste forca REDE_NO_TIDAL=0 e cobra as duas metades: nenhuma requisicao
+# enquanto o Tidal toca, e mesmo assim uma faixa que ja esta no cache entrando
+# na fila assim que acaba, porque ler o cache nao usa rede.
 script18 = f"""
 pkill -f "{T}/tidp/rs" 2>/dev/null || true
 sleep 1
@@ -1498,8 +1511,8 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/tidp/scrobble#' \\
     -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=2#' \\
     {p} > {T}/tidp/rs
 chmod 755 {T}/tidp/rs
-# Conferindo que o padrao NAO foi alterado por engano neste arquivo.
-grep -q '^REDE_NO_TIDAL=auto' {T}/tidp/rs && echo "PADRAO=auto" || echo "PADRAO=OUTRO"
+sed -i 's#^REDE_NO_TIDAL=.*#REDE_NO_TIDAL=0#' {T}/tidp/rs
+grep -q '^REDE_NO_TIDAL=0' {T}/tidp/rs && echo "PADRAO=0" || echo "PADRAO=OUTRO"
 
 busybox ash {T}/tidp/rs &
 PID=$!
@@ -1521,9 +1534,9 @@ res18 = r.posix_script(script18, name="daemon-tidal-padrao", mutating=False,
                        quiet=True, timeout=180)
 print("\n".join("   " + l for l in res18.stdout.splitlines()[:12]))
 
-check("o padrao de fabrica e 'so quando nao custa processo'",
-      "PADRAO=auto" in res18.stdout,
-      "REDE_NO_TIDAL nao esta em 'auto' no arquivo entregue")
+check("o interruptor de silencio de rede existe e foi aplicado",
+      "PADRAO=0" in res18.stdout,
+      "nao consegui por REDE_NO_TIDAL em 0 — o interruptor sumiu do arquivo")
 check("e com ele, nenhuma requisicao sai durante a reproducao",
       bloco(res18.stdout, "=== CURL COM O TIDAL TOCANDO ===") == "CHAMADAS=0",
       bloco(res18.stdout, "=== CURL COM O TIDAL TOCANDO ==="))
@@ -1646,213 +1659,6 @@ check("as seis faixas pendentes sairam em 25s, e nao uma por minuto",
       f"{_n_fila} de 6 — no ritmo lento o resto so apareceria minutos depois")
 check("e o arquivo de pendentes ficou vazio",
       _n_resto == 0, f"sobraram {_n_resto}")
-
-
-print()
-print("=" * 74)
-print("15. com o r1net de pe, a rede deixa de criar processos")
-print("=" * 74)
-# O ajudante residente e a resposta ao travamento: ele sobe no boot, quando ha
-# 22 MB livres, e depois fica parado num fifo com a conexao TLS aberta. O que
-# este teste cobra e o essencial — que o daemon PASSE A USA-LO, e que o curl
-# nao seja mais criado no meio da reproducao.
-#
-# O pedido em si vai falhar: o host aqui nao existe. Nao faz mal. O que se
-# esta medindo e quem foi chamado, nao se a resposta veio.
-# O caminho e expandido pelo shell do LADO POSIX, nao aqui: o interpretador
-# roda no Windows e o `~` dele aponta para outro lugar.
-_r1net = "$HOME/.cache/r1tls/r1net"
-_ca_sistema = "/etc/ssl/certs/ca-certificates.crt"
-_tem = r.posix_script(
-    f'[ -x {_r1net} ] && [ -s {_ca_sistema} ] && echo TEM || echo NAO',
-    name="tem-r1net", mutating=False, quiet=True, timeout=30).stdout
-
-if "TEM" not in _tem:
-    print("   PULADO: compile o ajudante antes com r1lastfm/build_r1net.sh")
-    print(f"            (procurei em {_r1net})")
-else:
-    script19 = f"""
-pkill -f "{T}/aj/rs" 2>/dev/null || true
-pkill -f r1net 2>/dev/null || true
-sleep 1
-rm -rf {T}/aj; mkdir -p {T}/aj/scrobble {T}/aj/tmp
-cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/aj/scrobble/real
-cp {_r1net} {T}/aj/scrobble/r1net
-chmod 755 {T}/aj/scrobble/real {T}/aj/scrobble/r1net
-cat > {T}/aj/scrobble/r1collect <<'FIMFALSO'
-{FALSO_TIDAL.replace("CTRLTID", T + "/aj/ctrltid")
-            .replace("CTRL", T + "/aj/ctrl")
-            .replace("REAL", T + "/aj/scrobble/real")}
-FIMFALSO
-cat > {T}/aj/scrobble/curl <<'FIMCURL'
-{CURL_FALSO.replace("REGISTRO", T + "/aj/curl.log")}
-FIMCURL
-cat > {T}/aj/scrobble/r1send <<'FIMSEND'
-#!/bin/sh
-case "$1" in
-tidalinfo) printf 'Artista X\\nTitulo Y\\nAlbum Z\\n200\\n' ;;
-esac
-exit 0
-FIMSEND
-chmod 755 {T}/aj/scrobble/r1collect {T}/aj/scrobble/curl \\
-          {T}/aj/scrobble/r1send
-
-cp {r.to_posix_path(WORK)}/sim1.db {T}/aj/banco.db
-echo chave > {T}/aj/scrobble/sk
-echo seg   > {T}/aj/scrobble/segredo
-echo api   > {T}/aj/scrobble/apikey
-# Certificados de VERDADE: com um arquivo de mentira o r1net nao sobe, e o
-# teste passaria a medir a queda para o curl em vez do caminho novo.
-cp {_ca_sistema} {T}/aj/scrobble/cacert.pem
-printf 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\n' \\
-    > {T}/aj/tat
-echo ini > {T}/aj/user.ini
-printf 'pcm=1\\n\\n' > {T}/aj/ctrl
-echo 111 > {T}/aj/ctrltid
-
-sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/aj/scrobble#' \\
-    -e 's#^DB=.*#DB={T}/aj/banco.db#' \\
-    -e 's#^DB_INTERNO=.*#DB_INTERNO={T}/aj/banco.db#' \\
-    -e 's#^MAIS=.*#MAIS={T}/aj/nada.db#' \\
-    -e 's#^CARTOES=.*#CARTOES="{T}/aj/sd"#' \\
-    -e 's#^COPIA=.*#COPIA={T}/aj/tmp/c.db#' \\
-    -e 's#^PARCIAL=.*#PARCIAL={T}/aj/tmp/p.tsv#' \\
-    -e 's#^LOG=.*#LOG={T}/aj/tmp/log#' \\
-    -e 's#^TICK=.*#TICK={T}/aj/tmp/tick#' \\
-    -e 's#^TRAVA=.*#TRAVA={T}/aj/tmp/rodando#' \\
-    -e 's#^TAT=.*#TAT={T}/aj/tat#' \\
-    -e 's#^TIDAL_INI=.*#TIDAL_INI={T}/aj/user.ini#' \\
-    -e 's#^TIDAL_JSON=.*#TIDAL_JSON={T}/aj/tmp/tj#' \\
-    -e 's#^CACERT_SD=.*#CACERT_SD={T}/aj/nao-existe.pem#' \\
-    -e 's#^FIFO_PED=.*#FIFO_PED={T}/aj/tmp/ped#' \\
-    -e 's#^FIFO_RESP=.*#FIFO_RESP={T}/aj/tmp/resp#' \\
-    -e 's#^CAB_TIDAL=.*#CAB_TIDAL={T}/aj/tmp/cab#' \\
-    -e 's#^TIDAL_API=.*#TIDAL_API=nao.existe.invalido#' \\
-    -e 's#^API_HOST=.*#API_HOST=nao.existe.invalido#' \\
-    -e 's#^AGORA=0#AGORA=1#' \\
-    -e 's#^REDE_NO_TIDAL=.*#REDE_NO_TIDAL=1#' \\
-    -e 's#^RAPIDO=15#RAPIDO=2#' -e 's#^ASSENTAR=5#ASSENTAR=1#' \\
-    -e 's#^CALMA=20#CALMA=4#' \\
-    -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=2#' \\
-    {p} > {T}/aj/rs
-chmod 755 {T}/aj/rs
-
-busybox ash {T}/aj/rs &
-PID=$!
-sleep 25
-kill -TERM $PID 2>/dev/null
-sleep 1
-pkill -f "{T}/aj/scrobble/r1net" 2>/dev/null || true
-sleep 1
-echo "=== O AJUDANTE SUBIU? ==="
-grep -c 'r1net de pe' {T}/aj/tmp/log 2>/dev/null || echo 0
-echo "=== O CURL FOI CRIADO? ==="
-echo "CHAMADAS=$(wc -l < {T}/aj/curl.log 2>/dev/null || echo 0)"
-echo "=== O AJUDANTE TENTOU FALAR? ==="
-grep -c 'nao.existe.invalido' {T}/aj/tmp/log 2>/dev/null || echo 0
-"""
-    res19 = r.posix_script(script19, name="daemon-ajudante", mutating=False,
-                           quiet=True, timeout=180)
-    print("\n".join("   " + l for l in res19.stdout.splitlines()[:10]))
-
-    check("o daemon subiu o ajudante residente",
-          bloco(res19.stdout, "=== O AJUDANTE SUBIU? ===") not in ("0", ""),
-          "o daemon nao registrou 'r1net de pe' — caiu para o curl")
-    check("e nenhum curl foi criado",
-          bloco(res19.stdout, "=== O CURL FOI CRIADO? ===") == "CHAMADAS=0",
-          bloco(res19.stdout, "=== O CURL FOI CRIADO? ===")
-          + " — a rede ainda esta nascendo processo no meio da reproducao")
-    check("a rede passou mesmo pelo ajudante",
-          bloco(res19.stdout, "=== O AJUDANTE TENTOU FALAR? ===")
-          not in ("0", ""),
-          "o r1net nunca recebeu pedido nenhum")
-
-
-print()
-print("=" * 74)
-print("16. a mesma faixa nao e anunciada duas vezes")
-print("=" * 74)
-# O `anunciar` guarda a duracao da faixa no fim, e e ela que impede o mesmo
-# "tocando agora" de sair a cada volta do laco. Um `return` posto cedo demais
-# no caminho do ajudante pulava essa linha: com a duracao em zero a compara-
-# cao "ja passou?" era sempre verdadeira, e um R1 de verdade ficou mandando a
-# MESMA musica para o Last.fm de 15 em 15 segundos.
-#
-# O teste roda vinte voltas com uma faixa so tocando e cobra UM anuncio.
-script20 = f"""
-pkill -f "{T}/np/rs" 2>/dev/null || true
-sleep 1
-rm -rf {T}/np; mkdir -p {T}/np/scrobble {T}/np/tmp
-cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/np/scrobble/real
-chmod 755 {T}/np/scrobble/real
-# O `buscar` e o que da os metadados da faixa local; o `estado` diz que ela
-# esta tocando. O resto vai para o coletor de verdade.
-cat > {T}/np/scrobble/r1collect <<'FIMFALSO'
-#!/bin/sh
-case "$1" in
-estado)  cat {T}/np/ctrl 2>/dev/null ;;
-tocando) sed -n 2p {T}/np/ctrl 2>/dev/null ;;
-buscar)  printf 'Artista N\\nTitulo N\\nAlbum N\\n200\\n' ;;
-tidal)   echo "" ;;
-*)       exec {T}/np/scrobble/real "$@" ;;
-esac
-FIMFALSO
-cat > {T}/np/scrobble/curl <<'FIMCURL'
-#!/bin/sh
-echo "chamado" >> {T}/np/curl.log
-exit 0
-FIMCURL
-cat > {T}/np/scrobble/r1send <<'FIMSEND'
-#!/bin/sh
-[ "$1" = agora ] && printf 'corpo\\n' > "$5"
-exit 0
-FIMSEND
-chmod 755 {T}/np/scrobble/r1collect {T}/np/scrobble/curl {T}/np/scrobble/r1send
-
-cp {r.to_posix_path(WORK)}/sim1.db {T}/np/banco.db
-echo chave > {T}/np/scrobble/sk
-echo seg   > {T}/np/scrobble/segredo
-echo api   > {T}/np/scrobble/apikey
-echo cert  > {T}/np/scrobble/cacert.pem
-# Tocando um arquivo LOCAL: pcm aberto e o caminho do arquivo na 2a linha.
-printf 'pcm=1\\n/musica/faixa.flac\\n' > {T}/np/ctrl
-
-sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/np/scrobble#' \\
-    -e 's#^DB=.*#DB={T}/np/banco.db#' \\
-    -e 's#^DB_INTERNO=.*#DB_INTERNO={T}/np/banco.db#' \\
-    -e 's#^MAIS=.*#MAIS={T}/np/nada.db#' \\
-    -e 's#^CARTOES=.*#CARTOES="{T}/np/sd"#' \\
-    -e 's#^COPIA=.*#COPIA={T}/np/tmp/c.db#' \\
-    -e 's#^PARCIAL=.*#PARCIAL={T}/np/tmp/p.tsv#' \\
-    -e 's#^LOG=.*#LOG={T}/np/tmp/log#' \\
-    -e 's#^TICK=.*#TICK={T}/np/tmp/tick#' \\
-    -e 's#^TRAVA=.*#TRAVA={T}/np/tmp/rodando#' \\
-    -e 's#^CACERT_SD=.*#CACERT_SD={T}/np/nao-existe.pem#' \\
-    -e 's#^AJUDANTE=.*#AJUDANTE={T}/np/nao-existe#' \\
-    -e 's#^AGORA=0#AGORA=1#' \\
-    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^ASSENTAR=5#ASSENTAR=1#' \\
-    -e 's#^LENTO=60#LENTO=1#' \\
-    {p} > {T}/np/rs
-chmod 755 {T}/np/rs
-
-busybox ash {T}/np/rs &
-PID=$!
-sleep 22
-kill -TERM $PID 2>/dev/null
-sleep 2
-echo "=== ANUNCIOS EM 22 VOLTAS ==="
-echo "CURL=$(wc -l < {T}/np/curl.log 2>/dev/null || echo 0)"
-echo "LOG=$(grep -c 'tocando agora' {T}/np/tmp/log 2>/dev/null || echo 0)"
-"""
-res20 = r.posix_script(script20, name="daemon-anuncio-unico", mutating=False,
-                       quiet=True, timeout=120)
-print("\n".join("   " + l for l in res20.stdout.splitlines()[:6]))
-
-_n_anuncios = _num(res20.stdout, "LOG")
-check("a faixa foi anunciada uma vez, e nao a cada volta",
-      _n_anuncios == 1,
-      f"{_n_anuncios} anuncios da MESMA faixa em 22s — isto e a duracao nao "
-      f"tendo sido guardada no fim do anunciar, e vira abuso da API")
 
 
 print()

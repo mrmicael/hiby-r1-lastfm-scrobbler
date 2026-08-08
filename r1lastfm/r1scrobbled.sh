@@ -300,7 +300,12 @@ TIDAL=1
 #
 # Tocando do cartão, o "tocando agora" segue pelo AGORA e não passa por aqui:
 # aquele caminho nunca deu problema e não é afetado.
-REDE_NO_TIDAL=0
+# LIGADO. Ele veio desligado na v22 porque o aparelho travava, e eu ainda não
+# sabia por quê. Agora sei: era o r1send reservando 8,7 MB de uma vez, o que
+# levava o sistema ao matador de memória, que matava o player. Isso está
+# consertado na raiz, e a lógica de anúncio daqui — janela calma, cache, nunca
+# duas requisições no mesmo ciclo — é a mesma que passou nos testes.
+REDE_NO_TIDAL=1
 
 # De quanto em quanto tempo olhar se dá para enviar. Doze minutos é o piso
 # garantido: mesmo sem nada acontecer, a fila sai nesse ritmo.
@@ -1712,6 +1717,19 @@ fi
 for m in "$MARCA" "$MARCA2" "$MARCA3"; do
     [ -f "$m" ] || touch -t 200001010000 "$m" 2>/dev/null || : > "$m"
 done
+
+# O acompanhamento do Tidal só acorda quando o /usr/data/user.ini muda — e ele
+# muda na TROCA de faixa. Um daemon que sobe no meio de uma faixa fica cego até
+# você pular, porque o arquivo já mudou antes de ele existir.
+#
+# Não é caso raro de quem instala: acontece toda vez que o aparelho liga com o
+# Tidal retomando de onde parou. Visto ao vivo — o daemon foi reiniciado com
+# uma faixa tocando e não anunciou nada até a seguinte.
+#
+# Envelhecer esta marca faz a primeira volta olhar o Tidal e adotar o que já
+# está no ar. O que se perde é só o tempo antes de o daemon existir, que
+# ninguém tinha como medir mesmo.
+[ "$TIDAL" = 1 ] && touch -t 200001010000 "$MARCA3" 2>/dev/null
 
 intervalo=$RAPIDO
 quietos=0
