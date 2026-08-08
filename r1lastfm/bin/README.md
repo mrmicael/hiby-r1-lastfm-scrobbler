@@ -7,6 +7,18 @@ The two programs that run **on the R1**, already cross-compiled for its CPU
 |---|---|
 | `r1collect` | reads the player's SQLite history and the Tidal track id; never writes |
 | `r1send` | assembles and signs the Last.fm batch, and writes the card's CSV |
+| `r1net` | the resident network helper: holds one TLS connection open so nothing has to be created mid-playback |
+
+`r1net` is the odd one out. It exists because the R1 froze whenever the
+scrobbler went to the network while Tidal was playing, and what every attempt
+had in common was *creating* something at that moment — a fork, an exec, a
+1.6 MB binary mapped in, a socket, a TLS handshake. It starts at boot, when
+there are 22 MB free, does all of that once, and then sits on a fifo.
+
+Measured on a real R1: **784 KB resident idle, 876 KB after the first request,
+and still 876 KB after the fourth.** Requests cost nothing after the first.
+`curl`, which it replaces for this path, is 1,643,940 bytes on disk and peaked
+at 896 KB of *fresh* allocation on every single invocation.
 
 ## Why they are here
 
@@ -35,11 +47,17 @@ zig cc -target mipsel-linux-musleabihf -Os -static -Wall -Wextra \
     -o r1send ../r1send.c
 ```
 
+`r1net` is not in that list because it needs mbedTLS. It has a script of its
+own, [`build_r1net.sh`](../build_r1net.sh), which fetches the library and
+builds it — a few minutes, and it needs the network, which is why it is not
+behind the same button as the other two.
+
 ## SHA256 of the files in this commit
 
 ```
 66d34da103db1b658c7713ca0032536805ba6c29f99bbb8807774f796538cb21  r1collect
 8a57dc035a680dfb6be3702e3fe9cf5635af2ea25e262aa5813c56e1155c7175  r1send
+1839bc892d86f55f537f65ee6eb250bea217b3482b4f580ca4b68a2f9b0e8938  r1net
 ```
 
 Built with Zig 0.16.0. Note that a rebuild will not necessarily match these
