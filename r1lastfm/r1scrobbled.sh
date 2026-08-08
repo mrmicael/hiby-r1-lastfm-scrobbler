@@ -989,9 +989,15 @@ http_pedir() {
         }
         [ "$_rid" = "$_hid" ] || continue
         http_codigo=$_rcod
+        # Sucesso aqui quer dizer "o servidor RESPONDEU", e não "respondeu que
+        # sim" — de propósito, para casar com o curl, que também sai com zero
+        # num HTTP 400. Quem chama continua lendo o corpo para saber o que o
+        # Last.fm achou; tratar um 400 como falha de rede faria o daemon
+        # perder as mensagens de erro dele (sessão inválida, e afins) e tentar
+        # de novo para sempre.
         case "$_rcod" in
-            2[0-9][0-9]) return 0 ;;
-            -*|'') return 1 ;;
+            1[0-9][0-9]|2[0-9][0-9]|3[0-9][0-9]|4[0-9][0-9]|5[0-9][0-9])
+                return 0 ;;
             *) return 1 ;;
         esac
     done
@@ -1089,28 +1095,34 @@ anunciar() {
     queixei_cacert=0
     http_pedir POST "$API_HOST" "${ip_api:--}" "$API_CAMINHO" \
                "$CORPO_NP" "$RESP_NP" -
-    _rcn=$?
-    if [ "$_rcn" -ne 2 ]; then
-        rm -f "$CORPO_NP" "$RESP_NP"
-        return "$_rcn"
-    fi
-    if [ -n "$ip_api" ]; then
-        "$CURL" -sS --max-time 20 --cacert "$ca" \
-            --resolve "$API_HOST:443:$ip_api" \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -A "hiby-r1-scrobbler/1.0" \
-            --data-binary "@$CORPO_NP" -o "$RESP_NP" "$API" 2>>"$LOG"
-    else
-        "$CURL" -sS --max-time 20 --cacert "$ca" \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -A "hiby-r1-scrobbler/1.0" \
-            --data-binary "@$CORPO_NP" -o "$RESP_NP" "$API" 2>>"$LOG"
-    fi
     rc=$?
+    if [ "$rc" = 2 ]; then
+        if [ -n "$ip_api" ]; then
+            "$CURL" -sS --max-time 20 --cacert "$ca" \
+                --resolve "$API_HOST:443:$ip_api" \
+                -H "Content-Type: application/x-www-form-urlencoded" \
+                -A "hiby-r1-scrobbler/1.0" \
+                --data-binary "@$CORPO_NP" -o "$RESP_NP" "$API" 2>>"$LOG"
+        else
+            "$CURL" -sS --max-time 20 --cacert "$ca" \
+                -H "Content-Type: application/x-www-form-urlencoded" \
+                -A "hiby-r1-scrobbler/1.0" \
+                --data-binary "@$CORPO_NP" -o "$RESP_NP" "$API" 2>>"$LOG"
+        fi
+        rc=$?
+    fi
     rm -f "$CORPO_NP" "$RESP_NP"
     # "Tocando agora" não vai para fila: se não deu, o momento passou. Não
     # vale gastar rádio tentando de novo uma faixa que já mudou.
     [ "$rc" = 0 ] || return 1
+    # A duração é o que impede o MESMO anúncio de sair a cada volta do laço:
+    # o olhar_tocando só reanuncia quando ela já passou. Com ela em zero, a
+    # comparação é sempre verdadeira e a mesma faixa vai para o Last.fm de 15
+    # em 15 segundos.
+    #
+    # Isto já quebrou: um `return` posto cedo demais no caminho do ajudante
+    # pulava esta linha, e o aparelho ficou reanunciando a mesma música sem
+    # parar. Por isso os dois caminhos terminam AQUI, num ponto só.
     np_dur_efetiva=$np_dur
     return 0
 }

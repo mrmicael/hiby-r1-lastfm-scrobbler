@@ -1770,5 +1770,92 @@ grep -c 'nao.existe.invalido' {T}/aj/tmp/log 2>/dev/null || echo 0
 
 print()
 print("=" * 74)
+print("16. a mesma faixa nao e anunciada duas vezes")
+print("=" * 74)
+# O `anunciar` guarda a duracao da faixa no fim, e e ela que impede o mesmo
+# "tocando agora" de sair a cada volta do laco. Um `return` posto cedo demais
+# no caminho do ajudante pulava essa linha: com a duracao em zero a compara-
+# cao "ja passou?" era sempre verdadeira, e um R1 de verdade ficou mandando a
+# MESMA musica para o Last.fm de 15 em 15 segundos.
+#
+# O teste roda vinte voltas com uma faixa so tocando e cobra UM anuncio.
+script20 = f"""
+pkill -f "{T}/np/rs" 2>/dev/null || true
+sleep 1
+rm -rf {T}/np; mkdir -p {T}/np/scrobble {T}/np/tmp
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/np/scrobble/real
+chmod 755 {T}/np/scrobble/real
+# O `buscar` e o que da os metadados da faixa local; o `estado` diz que ela
+# esta tocando. O resto vai para o coletor de verdade.
+cat > {T}/np/scrobble/r1collect <<'FIMFALSO'
+#!/bin/sh
+case "$1" in
+estado)  cat {T}/np/ctrl 2>/dev/null ;;
+tocando) sed -n 2p {T}/np/ctrl 2>/dev/null ;;
+buscar)  printf 'Artista N\\nTitulo N\\nAlbum N\\n200\\n' ;;
+tidal)   echo "" ;;
+*)       exec {T}/np/scrobble/real "$@" ;;
+esac
+FIMFALSO
+cat > {T}/np/scrobble/curl <<'FIMCURL'
+#!/bin/sh
+echo "chamado" >> {T}/np/curl.log
+exit 0
+FIMCURL
+cat > {T}/np/scrobble/r1send <<'FIMSEND'
+#!/bin/sh
+[ "$1" = agora ] && printf 'corpo\\n' > "$5"
+exit 0
+FIMSEND
+chmod 755 {T}/np/scrobble/r1collect {T}/np/scrobble/curl {T}/np/scrobble/r1send
+
+cp {r.to_posix_path(WORK)}/sim1.db {T}/np/banco.db
+echo chave > {T}/np/scrobble/sk
+echo seg   > {T}/np/scrobble/segredo
+echo api   > {T}/np/scrobble/apikey
+echo cert  > {T}/np/scrobble/cacert.pem
+# Tocando um arquivo LOCAL: pcm aberto e o caminho do arquivo na 2a linha.
+printf 'pcm=1\\n/musica/faixa.flac\\n' > {T}/np/ctrl
+
+sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/np/scrobble#' \\
+    -e 's#^DB=.*#DB={T}/np/banco.db#' \\
+    -e 's#^DB_INTERNO=.*#DB_INTERNO={T}/np/banco.db#' \\
+    -e 's#^MAIS=.*#MAIS={T}/np/nada.db#' \\
+    -e 's#^CARTOES=.*#CARTOES="{T}/np/sd"#' \\
+    -e 's#^COPIA=.*#COPIA={T}/np/tmp/c.db#' \\
+    -e 's#^PARCIAL=.*#PARCIAL={T}/np/tmp/p.tsv#' \\
+    -e 's#^LOG=.*#LOG={T}/np/tmp/log#' \\
+    -e 's#^TICK=.*#TICK={T}/np/tmp/tick#' \\
+    -e 's#^TRAVA=.*#TRAVA={T}/np/tmp/rodando#' \\
+    -e 's#^CACERT_SD=.*#CACERT_SD={T}/np/nao-existe.pem#' \\
+    -e 's#^AJUDANTE=.*#AJUDANTE={T}/np/nao-existe#' \\
+    -e 's#^AGORA=0#AGORA=1#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^ASSENTAR=5#ASSENTAR=1#' \\
+    -e 's#^LENTO=60#LENTO=1#' \\
+    {p} > {T}/np/rs
+chmod 755 {T}/np/rs
+
+busybox ash {T}/np/rs &
+PID=$!
+sleep 22
+kill -TERM $PID 2>/dev/null
+sleep 2
+echo "=== ANUNCIOS EM 22 VOLTAS ==="
+echo "CURL=$(wc -l < {T}/np/curl.log 2>/dev/null || echo 0)"
+echo "LOG=$(grep -c 'tocando agora' {T}/np/tmp/log 2>/dev/null || echo 0)"
+"""
+res20 = r.posix_script(script20, name="daemon-anuncio-unico", mutating=False,
+                       quiet=True, timeout=120)
+print("\n".join("   " + l for l in res20.stdout.splitlines()[:6]))
+
+_n_anuncios = _num(res20.stdout, "LOG")
+check("a faixa foi anunciada uma vez, e nao a cada volta",
+      _n_anuncios == 1,
+      f"{_n_anuncios} anuncios da MESMA faixa em 22s — isto e a duracao nao "
+      f"tendo sido guardada no fim do anunciar, e vira abuso da API")
+
+
+print()
+print("=" * 74)
 print("FALHAS:", falhas if falhas else "nenhuma")
 sys.exit(1 if falhas else 0)
