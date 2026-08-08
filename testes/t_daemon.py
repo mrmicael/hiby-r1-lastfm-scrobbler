@@ -1231,5 +1231,177 @@ else:
 
 print()
 print("=" * 74)
+print("13. com o Tidal tocando, NENHUM processo de rede nasce")
+print("=" * 74)
+# O aparelho travava tocando pelo Tidal, e nao tocando do cartao. Medido no R1:
+# com o Tidal tocando sobram ~1,5 MB livres e o maior bloco contiguo de memoria
+# e de meio mega; e o kernel do R1 foi compilado SEM compactacao — nao existe
+# /proc/sys/vm/compact_memory nem os contadores de compactacao em /proc/vmstat.
+# Entao aquela fragmentacao nao se desfaz enquanto o audio nao para. O curl tem
+# 1,6 MB (o r1collect tem 78 KB), e rodar isso ali dentro derrubava o player —
+# que o supervisor do firmware reinicia, e depois de cinco mortes seguidas
+# reinicia o aparelho.
+#
+# A regra virou: enquanto o Tidal toca o daemon so escreve texto. Este teste
+# poe um curl FALSO no lugar, que anota cada vez que e chamado, e cobra as duas
+# metades da regra: silencio absoluto de rede durante a reproducao, e a
+# consulta acontecendo assim que o audio para.
+FALSO_TIDAL = r"""#!/bin/sh
+case "$1" in
+estado)  cat CTRL 2>/dev/null || { echo "pcm=0"; echo ""; } ;;
+tidal)   cat CTRLTID 2>/dev/null ;;
+tocando) sed -n 2p CTRL 2>/dev/null ;;
+*)       exec REAL "$@" ;;
+esac
+"""
+# O curl de mentira. Alem de anotar a chamada, responde o suficiente para o
+# caminho seguir: a consulta de pais devolve um countryCode, e a da faixa
+# grava um json no arquivo pedido por -o.
+CURL_FALSO = r"""#!/bin/sh
+alvo=""
+url=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -o) alvo=$2; shift ;;
+        http*) url=$1 ;;
+    esac
+    shift
+done
+echo "$url" >> REGISTRO
+case "$url" in
+    # O formato importa: o daemon quebra a resposta nas virgulas e pega o
+    # campo depois dos dois-pontos. Um json sem virgula deixaria a chave
+    # colada no fecha-chaves e o pais sairia com tres caracteres.
+    *v1/sessions*) echo '{"userId":1,"countryCode":"BR","x":"y"}' ;;
+    *v1/tracks/*)
+        [ -n "$alvo" ] && echo '{"title":"T","duration":200}' > "$alvo" ;;
+esac
+exit 0
+"""
+script16 = f"""
+pkill -f "{T}/tid/rs" 2>/dev/null || true
+sleep 1
+rm -rf {T}/tid; mkdir -p {T}/tid/scrobble {T}/tid/tmp
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/tid/scrobble/real
+chmod 755 {T}/tid/scrobble/real
+cat > {T}/tid/scrobble/r1collect <<'FIMFALSO'
+{FALSO_TIDAL.replace("CTRLTID", T + "/tid/ctrltid")
+            .replace("CTRL", T + "/tid/ctrl")
+            .replace("REAL", T + "/tid/scrobble/real")}
+FIMFALSO
+cat > {T}/tid/scrobble/curl <<'FIMCURL'
+{CURL_FALSO.replace("REGISTRO", T + "/tid/curl.log")}
+FIMCURL
+# O r1send de mentira. So precisa saber responder ao `tidalinfo`, que e o que
+# transforma o json da API nos quatro campos.
+cat > {T}/tid/scrobble/r1send <<'FIMSEND'
+#!/bin/sh
+case "$1" in
+tidalinfo) printf 'Artista X\\nTitulo Y\\nAlbum Z\\n200\\n' ;;
+esac
+exit 0
+FIMSEND
+chmod 755 {T}/tid/scrobble/r1collect {T}/tid/scrobble/curl \\
+          {T}/tid/scrobble/r1send
+
+cp {r.to_posix_path(WORK)}/sim1.db {T}/tid/banco.db
+# Credenciais de mentira, so para as guardas passarem.
+echo chave > {T}/tid/scrobble/sk
+echo seg   > {T}/tid/scrobble/segredo
+echo api   > {T}/tid/scrobble/apikey
+echo cert  > {T}/tid/scrobble/cacert.pem
+# O token do Tidal precisa ter mais de 100 caracteres para o tidal_token pegar.
+printf 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\n' \\
+    > {T}/tid/tat
+echo ini > {T}/tid/user.ini
+
+# Tocando pelo Tidal: o audio sai (pcm=1) e NAO ha arquivo local aberto — a
+# segunda linha do `estado` vazia. E a faixa 111.
+printf 'pcm=1\\n\\n' > {T}/tid/ctrl
+echo 111 > {T}/tid/ctrltid
+
+sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/tid/scrobble#' \\
+    -e 's#^DB=.*#DB={T}/tid/banco.db#' \\
+    -e 's#^DB_INTERNO=.*#DB_INTERNO={T}/tid/banco.db#' \\
+    -e 's#^MAIS=.*#MAIS={T}/tid/nada.db#' \\
+    -e 's#^CARTOES=.*#CARTOES="{T}/tid/sd"#' \\
+    -e 's#^COPIA=.*#COPIA={T}/tid/tmp/c.db#' \\
+    -e 's#^PARCIAL=.*#PARCIAL={T}/tid/tmp/p.tsv#' \\
+    -e 's#^LOG=.*#LOG={T}/tid/tmp/log#' \\
+    -e 's#^TICK=.*#TICK={T}/tid/tmp/tick#' \\
+    -e 's#^TRAVA=.*#TRAVA={T}/tid/tmp/rodando#' \\
+    -e 's#^TAT=.*#TAT={T}/tid/tat#' \\
+    -e 's#^TIDAL_INI=.*#TIDAL_INI={T}/tid/user.ini#' \\
+    -e 's#^TIDAL_JSON=.*#TIDAL_JSON={T}/tid/tmp/tj#' \\
+    -e 's#^CACERT_SD=.*#CACERT_SD={T}/tid/nao-existe.pem#' \\
+    -e 's#^AGORA=0#AGORA=1#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^ASSENTAR=5#ASSENTAR=1#' \\
+    -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=1#' \\
+    {p} > {T}/tid/rs
+chmod 755 {T}/tid/rs
+
+busybox ash {T}/tid/rs &
+PID=$!
+# A faixa precisa passar dos 25s que o tidal_pendurar exige. Abaixo disso ela
+# nao passaria da regra dos 90% nem na faixa mais curta que o Last.fm aceita,
+# e anotar seria gastar uma consulta a rede para um scrobble que sera negado —
+# que e exatamente o que acontece aos montes quando se percorre uma lista.
+sleep 32
+# Trocou de faixa, ainda no Tidal. E o instante em que o player esta pedindo
+# memoria para a faixa nova — o pior momento possivel para alguem competir.
+echo 222 > {T}/tid/ctrltid
+touch {T}/tid/user.ini
+sleep 6
+echo "=== CURL DURANTE A REPRODUCAO ==="
+echo "CHAMADAS=$(wc -l < {T}/tid/curl.log 2>/dev/null || echo 0)"
+echo "=== PENDENTES ==="
+cat {T}/tid/scrobble/tidal_pend 2>/dev/null || echo "(nenhum)"
+
+# O audio parou. Agora ha memoria, e e aqui que a rede pode acontecer.
+printf 'pcm=0\\n\\n' > {T}/tid/ctrl
+sleep 8
+kill -TERM $PID 2>/dev/null
+sleep 2
+echo "=== CURL DEPOIS DO SILENCIO ==="
+echo "CHAMADAS=$(grep -c tidal {T}/tid/curl.log 2>/dev/null || echo 0)"
+echo "=== URLS ==="
+sort -u {T}/tid/curl.log 2>/dev/null | head -5
+echo "=== FILA ==="
+grep tidal {T}/tid/scrobble/fila.tsv 2>/dev/null || echo "(nenhuma)"
+echo "=== SOBROU PENDENTE? ==="
+echo "RESTO=$(wc -l < {T}/tid/scrobble/tidal_pend 2>/dev/null || echo 0)"
+echo "=== LOG ==="
+cat {T}/tid/tmp/log 2>/dev/null || true
+"""
+res16 = r.posix_script(script16, name="daemon-tidal-sem-rede", mutating=False,
+                       quiet=True, timeout=180)
+
+_durante = bloco(res16.stdout, "=== CURL DURANTE A REPRODUCAO ===")
+_depois = bloco(res16.stdout, "=== CURL DEPOIS DO SILENCIO ===")
+_pend = bloco(res16.stdout, "=== PENDENTES ===")
+print("\n".join("   " + l for l in res16.stdout.splitlines()[:14]))
+
+check("nenhum curl enquanto o Tidal toca",
+      _durante == "CHAMADAS=0",
+      f"{_durante} — rodou rede com o audio saindo, que e o que derrubava "
+      f"o player")
+check("a faixa que terminou ficou anotada, sem custar rede",
+      "111" in _pend,
+      f"pendentes={_pend!r}")
+check("e a consulta acontece assim que o audio para",
+      _depois != "CHAMADAS=0",
+      f"{_depois} — nunca foi buscar os metadados, o scrobble ficaria preso")
+_fila16 = bloco(res16.stdout, "=== FILA ===")
+check("a faixa do Tidal virou linha da fila, com os metadados",
+      "tidal:111" in _fila16 and "Artista X" in _fila16,
+      f"fila={_fila16!r}")
+check("e o pendente saiu do arquivo depois de resolvido",
+      bloco(res16.stdout, "=== SOBROU PENDENTE? ===") == "RESTO=0",
+      bloco(res16.stdout, "=== SOBROU PENDENTE? ===")
+      + " — resolvida e nao removida, ela voltaria a ser consultada para sempre")
+
+
+print()
+print("=" * 74)
 print("FALHAS:", falhas if falhas else "nenhuma")
 sys.exit(1 if falhas else 0)

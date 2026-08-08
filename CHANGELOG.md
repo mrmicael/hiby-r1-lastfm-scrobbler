@@ -1,5 +1,57 @@
 # Changes since the last release
 
+## Device version 20 — the Tidal crash, measured instead of guessed
+
+Versions 18 and 19 both moved `curl` around inside the Tidal path, and neither
+worked. This one starts from measurements taken on the device while it was
+playing.
+
+**What is actually true on an R1:**
+
+| | idle | playing |
+|---|---|---|
+| free memory | 22 MB | **1.5 MB** |
+| largest contiguous block | 16 MB (order 12) | **512 KB (order 7)** |
+
+And the R1's kernel is built **without memory compaction** — there is no
+`/proc/sys/vm/compact_memory` and no compaction counters in `/proc/vmstat`. So
+that collapse never recovers until the audio stops. It is a one-way door.
+
+Into that, the daemon was running `curl`, which is 1,643,940 bytes against the
+collector's 77,940. The player was not dying of running out of memory —
+`MemAvailable` stays around 10 MB. It was dying of not getting the *piece* it
+asked for.
+
+And when it dies, `/usr/bin/hiby_player.sh` — the firmware's supervisor —
+restarts it, and after five deaths in a row it calls `reboot`. That is what a
+"freeze" was.
+
+Playing from the card never hit this, because there the player is far smaller.
+On Tidal it holds 20 MB resident, 32 threads and 14 open sockets.
+
+**The rule now:** while Tidal is playing, the daemon only writes text. No
+lookup, no sending, no spreadsheet — the track id and its start and end times
+go into a small pending file, which costs no process at all. Everything that
+needs the network waits for the silence and goes out on the first cycle after
+it. Nothing on the card path was touched.
+
+Two consequences worth knowing:
+
+- **Tidal loses "now playing."** Announcing needs two network round trips, and
+  both would have to happen while the audio is playing. Announcing afterwards
+  would not be announcing anything. The scrobble itself is unaffected — it is
+  written to the queue and sent in full. Local files keep their "now playing".
+- **Repeats are now detected afterwards**, from the total elapsed time and the
+  duration, instead of during playback. This is both simpler and more correct:
+  it no longer needs the duration — and therefore the network — while the track
+  is running.
+
+Tracks shorter than 25 seconds are dropped before they reach the pending file.
+They could never pass the 90% rule anyway, and skipping through a list used to
+spend one network lookup on each one.
+
+---
+
 ## Device version 19 — two curls at once was the rest of the Tidal crash
 
 > *"it also crashes the same way in the podcast app"*

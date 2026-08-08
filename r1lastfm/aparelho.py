@@ -28,6 +28,9 @@ ESTADO = DIR + "/estado"
 # A medição da faixa em curso, salva de tempos em tempos para um travamento
 # não levá-la junto. Existe só enquanto há faixa aberta. Ver o r1scrobbled.sh.
 MEDINDO = DIR + "/medindo"
+# Faixas do Tidal que terminaram e ainda esperam a consulta dos metadados. O
+# daemon só a faz com o áudio parado; ver o comentário no r1scrobbled.sh.
+PEND_TIDAL = DIR + "/tidal_pend"
 # Qual dos dois bancos do player o coletor está seguindo. Escrito por ele; aqui
 # só é lido, para a tela poder dizer quando o banco está no cartão.
 BANCO_ATUAL = DIR + "/banco"
@@ -65,10 +68,10 @@ LANCADOR = "/usr/bin/hiby_player.sh"
 
 # Sobe a cada mudança que valha reinstalar no aparelho. A tela compara com o
 # que está gravado lá e só oferece a atualização quando há diferença.
-VERSAO = 19
+VERSAO = 20
 # As versões que existem. O que cada uma trouxe está no catálogo de textos,
 # sob "novidade.<n>", porque isso aparece na tela e tem de estar traduzido.
-NOVIDADES = (19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+NOVIDADES = (20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
 
 
 def novidade(versao: int) -> str:
@@ -642,10 +645,12 @@ def desinstalar(adb: Adb, log: Log, *, apagar_fila: bool = False) -> None:
     else:
         # A fila fica; o resto sai. O `medindo` é a medição de uma faixa que
         # estava tocando na hora, e sem o daemon ninguém a fecharia — deixá-lo
-        # faria a próxima instalação recuperar uma escuta de meses atrás. As
-        # marcas .visto* são só mtimes de controle e não valem nada sozinhas.
+        # faria a próxima instalação recuperar uma escuta de meses atrás. O
+        # `tidal_pend` sai pelo mesmo motivo: são faixas do Tidal esperando a
+        # consulta dos metadados, e sem o daemon ninguém as resolve. As marcas
+        # .visto* são só mtimes de controle e não valem nada sozinhas.
         adb.shell(f"rm -f {BIN} {DAEMON} {CONF} {REMETENTE} {CURL} {TRAVA_ANTIGA} "
-                  f"{SK} {SEGREDO} {APIKEY} {MEDINDO} "
+                  f"{SK} {SEGREDO} {APIKEY} {MEDINDO} {PEND_TIDAL} "
                   f"{DIR}/.visto {DIR}/.visto2 {DIR}/.visto3")
         log.ok(t("ap.removed.kept", fila=FILA))
 

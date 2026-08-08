@@ -1400,6 +1400,43 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.20": {
+        "en": "the Tidal crash, found and fixed. Measured on the device: "
+              "while Tidal plays there is about 1.5 MB free and the largest "
+              "contiguous block of memory is half a megabyte — and the R1's "
+              "kernel was built without memory compaction, so that never "
+              "recovers until the audio stops. With the sound off there are "
+              "22 MB free and 16 MB blocks. Into that, the scrobbler was "
+              "running curl, which is 1.6 MB against the collector's 78 KB. "
+              "The player did not die of running out of memory; it died of "
+              "not getting the piece it asked for — and when it dies the "
+              "firmware's supervisor restarts it, and after five deaths in a "
+              "row it reboots the device. That is the \"freeze\". Playing "
+              "from the card never hit this because there the player is far "
+              "smaller; on Tidal it holds 20 MB resident, 32 threads and 14 "
+              "open sockets. So the rule is now: while Tidal is playing the "
+              "daemon only writes text — no lookup, no sending, no "
+              "spreadsheet. Everything that needs the network waits for the "
+              "silence, and it goes out on the first cycle after it. Nothing "
+              "on the card path was touched",
+        "pt": "o travamento no Tidal, achado e consertado. Medido no "
+              "aparelho: com o Tidal tocando sobram uns 1,5 MB livres e o "
+              "maior bloco contiguo de memoria e de meio mega — e o kernel do "
+              "R1 foi compilado sem compactacao de memoria, entao isso nao se "
+              "recupera enquanto o audio nao para. Com o som parado sao 22 MB "
+              "livres e blocos de 16 MB. No meio disso o scrobbler rodava o "
+              "curl, que tem 1,6 MB contra os 78 KB do coletor. O player nao "
+              "morria de falta de memoria: morria de nao conseguir o pedaco "
+              "que pedia — e quando ele morre o supervisor do firmware o "
+              "reinicia, e depois de cinco mortes seguidas reinicia o "
+              "aparelho. E isso o \"travamento\". Tocando do cartao nunca "
+              "acontecia porque ali o player e bem menor; no Tidal ele tem "
+              "20 MB residentes, 32 threads e 14 sockets abertos. Entao a "
+              "regra agora e: enquanto o Tidal toca, o daemon so escreve "
+              "texto — sem consulta, sem envio, sem planilha. Tudo o que "
+              "precisa da rede espera o silencio, e sai na primeira volta "
+              "depois dele. Nada do caminho do cartao foi tocado",
+    },
     "novidade.19": {
         "en": "Tidal still crashed the player, and this was the other half of "
               "why. Right after fetching a track's title from Tidal's "
