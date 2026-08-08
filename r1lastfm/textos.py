@@ -1400,6 +1400,37 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.22": {
+        "en": "the Tidal \"now playing\" is off by default again, because it "
+              "still froze a real device — at the exact instant the "
+              "announcement went out, with the owner watching, even with "
+              "version 21 keeping it 20 seconds clear of the track change. "
+              "That does not fit the measurements, which found one request "
+              "mid-track to be harmless, and it does not fit the device also "
+              "rebooting once with the daemon stopped and no request made at "
+              "all. With no model that explains all three, turning it on by "
+              "default would be betting your device on a hunch. One switch "
+              "(REDE_NO_TIDAL, at the top of the daemon) turns it back on for "
+              "anyone who wants to try; all the careful timing machinery is "
+              "still there. Almost nothing is lost: the cache costs no "
+              "network, so a track you have heard before still enters the "
+              "queue the moment it ends, and every scrobble still goes up in "
+              "full with the right time",
+        "pt": "o \"tocando agora\" do Tidal voltou a vir desligado, porque ele "
+              "ainda travou um aparelho de verdade — no instante exato em que "
+              "o anuncio saiu, com o dono assistindo, mesmo com a versao 21 "
+              "mantendo-o 20 segundos longe da troca de faixa. Isso nao bate "
+              "com a medicao, que achou uma requisicao no meio da faixa "
+              "inofensiva, nem com o aparelho tambem ter reiniciado uma vez "
+              "com o daemon PARADO e nenhuma requisicao feita. Sem um modelo "
+              "que explique as tres coisas, ligar por padrao seria apostar o "
+              "seu aparelho num palpite. Um interruptor (REDE_NO_TIDAL, no "
+              "alto do daemon) liga de volta para quem quiser tentar, e toda "
+              "a maquinaria de tempo continua la. Quase nada se perde: o "
+              "cache nao usa rede, entao uma faixa que voce ja ouviu continua "
+              "entrando na fila no instante em que acaba, e todo scrobble "
+              "sobe inteiro e com a hora certa",
+    },
     "novidade.21": {
         "en": "\"now playing\" is back on Tidal, and version 20 was more "
               "cautious than it needed to be. Measured on the device: one "

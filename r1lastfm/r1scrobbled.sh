@@ -268,6 +268,40 @@ AGORA=0
 # acontece quando há Tidal tocando, e nesse caso a rede já está de pé.
 TIDAL=1
 
+# Pode usar a rede ENQUANTO uma faixa do Tidal está tocando? Não, por padrão.
+#
+# Um único interruptor para as duas coisas que precisariam dela — buscar os
+# dados da faixa e anunciar o "tocando agora" —, porque separá-las não faria
+# sentido: são o mesmo risco.
+#
+# Não é medo abstrato. Num R1 de verdade o aparelho travou no instante exato em
+# que o anúncio saiu, com o dono assistindo — e isso depois de a v21 já ter
+# afastado o anúncio 20 segundos da troca de faixa e garantido que ele nunca
+# dividisse ciclo com a consulta.
+#
+# O que eu sei, e o que não sei:
+#
+#   • medindo à parte, cinco requisições HTTPS seguidas no meio de uma faixa do
+#     Tidal não incomodaram o player — pico de 896 KB, fragmentação intocada;
+#   • e mesmo assim o anúncio derrubou;
+#   • e o aparelho também já reiniciou uma vez com o daemon PARADO e nenhuma
+#     requisição feita, o que quer dizer que existe pelo menos uma causa que
+#     não é esta.
+#
+# Não tenho um modelo que explique as três coisas ao mesmo tempo. Ligar isto por
+# padrão seria apostar a estabilidade do aparelho de quem instala num palpite
+# meu. Quem quiser tentar é só pôr 1 aqui: toda a maquinaria da janela calma
+# continua no lugar, e é ela que passa a valer.
+#
+# Com isto em 0, quase nada se perde. O cache é lido normalmente — ele não usa
+# rede —, então uma faixa que você já ouviu vira linha da fila no instante em
+# que acaba. Só a faixa NOVA espera o áudio parar para ser identificada. E o
+# scrobble sobe inteiro nos dois casos, com a hora certa.
+#
+# Tocando do cartão, o "tocando agora" segue pelo AGORA e não passa por aqui:
+# aquele caminho nunca deu problema e não é afetado.
+REDE_NO_TIDAL=0
+
 # De quanto em quanto tempo olhar se dá para enviar. Doze minutos é o piso
 # garantido: mesmo sem nada acontecer, a fila sai nesse ritmo.
 ENVIO=720
@@ -1292,34 +1326,53 @@ olhar_tidal() {
         return 0
     fi
 
-    # Daqui para baixo é a faixa em curso, e nada acontece antes de a janela
-    # calma passar.
-    [ $((t_agora - tid_desde)) -ge "$CALMA" ] || return 0
+    # Daqui para baixo, a faixa em curso. Primeiro o que é de graça.
 
-    # 1. Os dados da faixa. O cache é leitura de arquivo e não custa nada; só
-    #    quem nunca foi perguntado vai à rede — e quando vai, para por aqui:
-    #    o anúncio fica para a volta seguinte, para nunca haver dois curl no
-    #    mesmo ciclo.
-    if [ "$tid_sabido" != 1 ]; then
-        if tidal_cache_ler "$tid_id"; then
-            tid_sabido=1
-        else
-            [ "$t_agora" -lt "$tid_tentar" ] 2>/dev/null && return 0
-            tem_memoria || return 0
-            if tidal_meta "$tid_id"; then
-                tid_sabido=1
-                tid_falhas=0
-            else
-                tid_pais=""
-                tid_tentar=$((t_agora + 60))
-            fi
-            return 0
-        fi
+    # O cache é leitura de arquivo: não usa rede, não cria processo, e por isso
+    # acontece sempre — inclusive nos primeiros segundos da faixa e com
+    # REDE_NO_TIDAL desligado. É ele que faz uma faixa já conhecida entrar na
+    # fila no instante em que acaba, em vez de esperar o silêncio.
+    if [ "$tid_sabido" != 1 ] && tidal_cache_ler "$tid_id"; then
+        tid_sabido=1
     fi
 
-    # 2. O "tocando agora". Uma ida à rede, longe da troca de faixa, e uma só
-    #    por faixa. Faixa que você já ouviu antes chega até aqui sem ter
-    #    gastado nada: o cache respondeu.
+    # Mesma faixa há tempo suficiente para ela ter acabado: ou você a pôs no
+    # repetir, ou o player seguiu para outra que ainda não vimos. Fecha esta e
+    # recomeça a contagem — é o que faz repetir uma música continuar
+    # scrobblando. Precisa da duração, que só se tem sabendo a faixa.
+    if [ "$tid_sabido" = 1 ] && [ "$tid_dur" -gt 0 ] 2>/dev/null &&
+       [ $((t_agora - tid_desde)) -ge "$tid_dur" ]; then
+        t_fim=$((tid_desde + tid_dur))
+        tidal_anotar "$t_fim" "$tid_desde"
+        tid_desde=$t_fim
+        tid_anunciado=0
+    fi
+
+    # Daqui para baixo é rede, e com o Tidal tocando ela depende de permissão.
+    # Sem ela, tid_rede_ok fica em 0 e o daemon inteiro — consulta, anúncio,
+    # envio e planilha — espera o áudio parar. É o padrão.
+    [ "$REDE_NO_TIDAL" = 1 ] || return 0
+
+    # E mesmo com permissão, nada nos primeiros CALMA segundos da faixa.
+    [ $((t_agora - tid_desde)) -ge "$CALMA" ] || return 0
+
+    # A faixa que o cache não conhecia. Quando vai à rede, para por aqui: o
+    # anúncio fica para a volta seguinte, para nunca haver dois curl no mesmo
+    # ciclo.
+    if [ "$tid_sabido" != 1 ]; then
+        [ "$t_agora" -lt "$tid_tentar" ] 2>/dev/null && return 0
+        tem_memoria || return 0
+        if tidal_meta "$tid_id"; then
+            tid_sabido=1
+            tid_falhas=0
+        else
+            tid_pais=""
+            tid_tentar=$((t_agora + 60))
+        fi
+        return 0
+    fi
+
+    # O "tocando agora": uma ida à rede, longe da troca, uma só por faixa.
     if [ "$AGORA" = 1 ] && [ "$tid_anunciado" != 1 ]; then
         tem_memoria || return 0
         tid_anunciado=1
@@ -1330,18 +1383,6 @@ olhar_tidal() {
     # Nada a fazer nesta volta: a faixa já está sabida e já foi anunciada, e a
     # janela calma passou. É seguro o resto do daemon usar a rede agora.
     tid_rede_ok=1
-
-    # 3. Mesma faixa há tempo suficiente para ela ter acabado: ou você a pôs no
-    #    repetir, ou o player seguiu para outra que ainda não vimos. Fecha esta
-    #    e recomeça a contagem — é o que faz repetir uma música continuar
-    #    scrobblando. Só dá para saber isto tendo a duração, que agora se tem.
-    if [ "$tid_sabido" = 1 ] && [ "$tid_dur" -gt 0 ] 2>/dev/null &&
-       [ $((t_agora - tid_desde)) -ge "$tid_dur" ]; then
-        t_fim=$((tid_desde + tid_dur))
-        tidal_anotar "$t_fim" "$tid_desde"
-        tid_desde=$t_fim
-        tid_anunciado=0
-    fi
 }
 
 # Fecha a faixa do Tidal que estava tocando.

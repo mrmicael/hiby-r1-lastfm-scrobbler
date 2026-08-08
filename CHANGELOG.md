@@ -1,5 +1,37 @@
 # Changes since the last release
 
+## Device version 22 — the Tidal announcement is off by default again
+
+Version 21 put "now playing" back on Tidal, 20 seconds clear of the track
+change, never sharing a cycle with the metadata lookup. It still froze a real
+device, **at the exact instant the announcement went out**, with the owner
+watching.
+
+That is the most direct evidence anyone has produced in this whole
+investigation, and it does not fit the measurements:
+
+- five HTTPS handshakes in the calm middle of a Tidal track were harmless
+  (896 KB peak, fragmentation unmoved, player fine);
+- yet the announcement froze it;
+- and the device also rebooted once with the **daemon stopped and no request
+  made at all** — so at least one cause is not us.
+
+There is no model that explains all three. Shipping it on by default would be
+betting somebody's device on a hunch, so it ships off.
+
+`REDE_NO_TIDAL`, at the top of the daemon, turns it back on. It is one switch
+for both things that need the network while a Tidal track plays — the metadata
+lookup and the announcement — because separating them would be separating one
+risk from itself. All of version 21's timing machinery is still there and takes
+effect when it is on.
+
+**What is lost with it off: almost nothing.** Reading the cache costs no
+network, so a track you have heard before still becomes a queue line the moment
+it ends. Only a *new* track waits for the audio to stop before being
+identified. Every scrobble still goes up in full, with the real timestamps.
+
+---
+
 ## Device version 21 — "now playing" is back on Tidal
 
 Version 20 blamed `curl`'s size. That was a guess dressed up as a measurement,

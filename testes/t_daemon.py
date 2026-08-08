@@ -1337,6 +1337,7 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/tid/scrobble#' \\
     -e 's#^TIDAL_JSON=.*#TIDAL_JSON={T}/tid/tmp/tj#' \\
     -e 's#^CACERT_SD=.*#CACERT_SD={T}/tid/nao-existe.pem#' \\
     -e 's#^AGORA=0#AGORA=1#' \\
+    -e 's#^REDE_NO_TIDAL=0#REDE_NO_TIDAL=1#' \\
     -e 's#^RAPIDO=15#RAPIDO=2#' -e 's#^ASSENTAR=5#ASSENTAR=1#' \\
     -e 's#^CALMA=20#CALMA=6#' \\
     -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=2#' \\
@@ -1426,6 +1427,113 @@ check("faixa ja conhecida nao e perguntada de novo",
       == "CONSULTAS_111=1",
       bloco(res16.stdout, "=== CONSULTAS A 111 (cache: tem de ser 1) ===")
       + " — o cache existe para que repetir um album nao custe rede")
+
+
+print()
+print("=" * 74)
+print("13b. no padrao de fabrica, o Tidal tocando nao usa rede nenhuma")
+print("=" * 74)
+# A secao acima roda com REDE_NO_TIDAL=1, que e o modo de quem escolheu
+# arriscar. O PADRAO e 0, e e este que quase todo mundo vai usar — num R1 de
+# verdade o aparelho travou no instante em que o anuncio saiu. Este teste
+# cobra o padrao: com o Tidal tocando, nada de rede; e mesmo assim uma faixa
+# que ja esta no cache entra na fila assim que acaba, porque ler o cache nao
+# usa rede.
+script18 = f"""
+pkill -f "{T}/tidp/rs" 2>/dev/null || true
+sleep 1
+rm -rf {T}/tidp; mkdir -p {T}/tidp/scrobble {T}/tidp/tmp
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/tidp/scrobble/real
+chmod 755 {T}/tidp/scrobble/real
+cat > {T}/tidp/scrobble/r1collect <<'FIMFALSO'
+{FALSO_TIDAL.replace("CTRLTID", T + "/tidp/ctrltid")
+            .replace("CTRL", T + "/tidp/ctrl")
+            .replace("REAL", T + "/tidp/scrobble/real")}
+FIMFALSO
+cat > {T}/tidp/scrobble/curl <<'FIMCURL'
+{CURL_FALSO.replace("REGISTRO", T + "/tidp/curl.log")}
+FIMCURL
+cat > {T}/tidp/scrobble/r1send <<'FIMSEND'
+#!/bin/sh
+case "$1" in
+tidalinfo) printf 'Artista X\\nTitulo Y\\nAlbum Z\\n200\\n' ;;
+esac
+exit 0
+FIMSEND
+chmod 755 {T}/tidp/scrobble/r1collect {T}/tidp/scrobble/curl \\
+          {T}/tidp/scrobble/r1send
+
+cp {r.to_posix_path(WORK)}/sim1.db {T}/tidp/banco.db
+echo chave > {T}/tidp/scrobble/sk
+echo seg   > {T}/tidp/scrobble/segredo
+echo api   > {T}/tidp/scrobble/apikey
+echo cert  > {T}/tidp/scrobble/cacert.pem
+printf 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\n' \\
+    > {T}/tidp/tat
+echo ini > {T}/tidp/user.ini
+
+# A faixa 555 JA e conhecida — o cache tem os dados dela. A 666 e nova.
+printf '555\\tArtista C\\tTitulo C\\tAlbum C\\t200\\n' \\
+    > {T}/tidp/scrobble/tidal_cache
+printf 'pcm=1\\n\\n' > {T}/tidp/ctrl
+echo 555 > {T}/tidp/ctrltid
+
+sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/tidp/scrobble#' \\
+    -e 's#^DB=.*#DB={T}/tidp/banco.db#' \\
+    -e 's#^DB_INTERNO=.*#DB_INTERNO={T}/tidp/banco.db#' \\
+    -e 's#^MAIS=.*#MAIS={T}/tidp/nada.db#' \\
+    -e 's#^CARTOES=.*#CARTOES="{T}/tidp/sd"#' \\
+    -e 's#^COPIA=.*#COPIA={T}/tidp/tmp/c.db#' \\
+    -e 's#^PARCIAL=.*#PARCIAL={T}/tidp/tmp/p.tsv#' \\
+    -e 's#^LOG=.*#LOG={T}/tidp/tmp/log#' \\
+    -e 's#^TICK=.*#TICK={T}/tidp/tmp/tick#' \\
+    -e 's#^TRAVA=.*#TRAVA={T}/tidp/tmp/rodando#' \\
+    -e 's#^TAT=.*#TAT={T}/tidp/tat#' \\
+    -e 's#^TIDAL_INI=.*#TIDAL_INI={T}/tidp/user.ini#' \\
+    -e 's#^TIDAL_JSON=.*#TIDAL_JSON={T}/tidp/tmp/tj#' \\
+    -e 's#^CACERT_SD=.*#CACERT_SD={T}/tidp/nao-existe.pem#' \\
+    -e 's#^AGORA=0#AGORA=1#' \\
+    -e 's#^RAPIDO=15#RAPIDO=2#' -e 's#^ASSENTAR=5#ASSENTAR=1#' \\
+    -e 's#^CALMA=20#CALMA=4#' \\
+    -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=2#' \\
+    {p} > {T}/tidp/rs
+chmod 755 {T}/tidp/rs
+# Conferindo que o padrao NAO foi alterado por engano neste arquivo.
+grep -q '^REDE_NO_TIDAL=0' {T}/tidp/rs && echo "PADRAO=0" || echo "PADRAO=OUTRO"
+
+busybox ash {T}/tidp/rs &
+PID=$!
+# Bem depois da janela calma: se fosse usar rede, ja teria usado.
+sleep 30
+echo "=== CURL COM O TIDAL TOCANDO ==="
+echo "CHAMADAS=$(wc -l < {T}/tidp/curl.log 2>/dev/null || echo 0)"
+# Troca para a 666, que e nova. A 555 tem de virar linha da fila AGORA.
+echo 666 > {T}/tidp/ctrltid
+sleep 4
+echo "=== A FAIXA CONHECIDA ENTROU NA FILA? ==="
+grep 'tidal:555' {T}/tidp/scrobble/fila.tsv 2>/dev/null || echo "(nao)"
+echo "=== E CONTINUOU SEM REDE? ==="
+echo "CHAMADAS=$(wc -l < {T}/tidp/curl.log 2>/dev/null || echo 0)"
+kill -TERM $PID 2>/dev/null
+sleep 2
+"""
+res18 = r.posix_script(script18, name="daemon-tidal-padrao", mutating=False,
+                       quiet=True, timeout=180)
+print("\n".join("   " + l for l in res18.stdout.splitlines()[:12]))
+
+check("o padrao de fabrica e nao usar rede com o Tidal tocando",
+      "PADRAO=0" in res18.stdout,
+      "REDE_NO_TIDAL nao esta em 0 no arquivo entregue")
+check("e com ele, nenhuma requisicao sai durante a reproducao",
+      bloco(res18.stdout, "=== CURL COM O TIDAL TOCANDO ===") == "CHAMADAS=0",
+      bloco(res18.stdout, "=== CURL COM O TIDAL TOCANDO ==="))
+_f18 = bloco(res18.stdout, "=== A FAIXA CONHECIDA ENTROU NA FILA? ===")
+check("mas a faixa que ja estava no cache entra na fila ao acabar",
+      "tidal:555" in _f18 and "Artista C" in _f18,
+      f"fila={_f18!r} — ler o cache nao usa rede, entao nao ha por que esperar")
+check("e nem isso disparou rede",
+      bloco(res18.stdout, "=== E CONTINUOU SEM REDE? ===") == "CHAMADAS=0",
+      bloco(res18.stdout, "=== E CONTINUOU SEM REDE? ==="))
 
 
 print()
