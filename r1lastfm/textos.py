@@ -1400,6 +1400,27 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.19": {
+        "en": "Tidal still crashed the player, and this was the other half of "
+              "why. Right after fetching a track's title from Tidal's "
+              "servers, the daemon sent the \"now playing\" to Last.fm in the "
+              "same breath — two copies of curl, each a 1.6 MB program with "
+              "its own encryption buffers, alive at the same moment on a "
+              "device that rarely has 2 MB free. Playing from the card never "
+              "did this: there is no Tidal lookup, so there was only ever one "
+              "of them. The two are now a cycle apart, and the second one "
+              "checks the free memory for itself before it runs",
+        "pt": "o Tidal ainda travava o aparelho, e esta era a outra metade do "
+              "motivo. Logo depois de buscar o titulo da faixa nos servidores "
+              "do Tidal, o daemon mandava o \"tocando agora\" para o Last.fm "
+              "na mesma tacada — dois curl, cada um um programa de 1,6 MB com "
+              "seus proprios buffers de criptografia, vivos ao mesmo tempo "
+              "num aparelho que raramente tem 2 MB livres. Tocando do cartao "
+              "isso nunca acontecia: nao ha consulta ao Tidal, entao so "
+              "existia um deles. Agora os dois ficam a um ciclo de "
+              "distancia, e o segundo confere a memoria livre por conta "
+              "propria antes de rodar",
+    },
     "novidade.18": {
         "en": "Tidal could crash the player. Getting a track's title from "
               "Tidal's servers meant running curl right at the instant the "

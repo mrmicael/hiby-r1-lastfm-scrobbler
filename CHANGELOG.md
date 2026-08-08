@@ -1,5 +1,42 @@
 # Changes since the last release
 
+## Device version 19 — two curls at once was the rest of the Tidal crash
+
+> *"it also crashes the same way in the podcast app"*
+
+Version 18 moved the Tidal metadata lookup off the instant of the track change.
+It was not enough, and this is why: the moment that lookup came back, the very
+next line sent the "now playing" to Last.fm. Two copies of `curl` — a 1.6 MB
+static program each, plus its own TLS buffers — alive at the same moment, on a
+device whose free memory is usually between 1.5 and 2.5 MB.
+
+Playing from the card never did this. There is no Tidal lookup there, so there
+was only ever one `curl`. That is the whole difference between the path that
+crashed and the path that stopped crashing, and it is why fixing the card did
+nothing for Tidal.
+
+The two are a full cycle apart now, and the announcement checks the free memory
+for itself before it runs — if it is short, it waits another cycle instead of
+insisting. A missed "now playing" costs nothing: the scrobble is written to the
+queue separately.
+
+The pending announcement is dropped if the track changes or the audio stops
+before it goes out, so a delayed announcement can never put the wrong track on
+the profile.
+
+Nothing outside `olhar_tidal` was touched.
+
+---
+
+## Device version 18 — the Tidal lookup ran at the instant of the track change
+
+Asking Tidal's servers for a track's title meant running `curl` exactly when
+the player was allocating buffers for the new track — a memory spike landing on
+the tightest moment there is. It waits one cycle now, and holds off if memory
+is still short when it tries.
+
+---
+
 ## Device version 17 — skipping quickly counted as listening
 
 > *"those two, Super Duper and Enemy: I didn't listen to them, I skipped them,

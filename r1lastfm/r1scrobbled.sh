@@ -1077,6 +1077,8 @@ olhar_tidal() {
             [ -z "$tid_pendente" ] && tidal_anotar "$t_agora" "$tid_desde"
             tid_id=""; tid_desde=0
         fi
+        # Parou de tocar: não faz sentido anunciar como "tocando agora".
+        tid_anunciar=""
         return 0
     fi
 
@@ -1095,6 +1097,9 @@ olhar_tidal() {
         # Nao executa curl no instante da troca: ele e o pico de RAM que
         # derrubava o aparelho. A consulta fica para o proximo ciclo.
         tid_pendente="$t_novo"
+        # Anúncio da faixa anterior que não chegou a sair: os metadados dele
+        # já não valem, e anunciar agora poria a faixa errada no perfil.
+        tid_anunciar=""
         return 0
     fi
 
@@ -1110,12 +1115,28 @@ olhar_tidal() {
         if tidal_meta "$_pend"; then
             tid_pendente=""
             tid_tentar=0
-            [ "$AGORA" = 1 ] && anunciar_tidal
+            # NÃO anuncia aqui. O `tidal_meta` acabou de rodar um curl, e o
+            # anúncio é um segundo curl — dois processos de 1,6 MB, cada um
+            # com seus buffers de TLS, no mesmo ciclo. É isto que o Tidal faz
+            # e o arquivo local não: tocando do cartão só existe o anúncio.
+            # Fica para o ciclo seguinte, com sua própria checagem de memória.
+            [ "$AGORA" = 1 ] && tid_anunciar=1
         else
             tid_pais=""
             tid_tentar=$((t_agora + 60))
             registrar "tidal: nao consegui os dados da faixa $_pend; vou tentar de novo"
         fi
+        return 0
+    fi
+
+    # O anúncio adiado do bloco acima. Um ciclo depois do curl dos metadados,
+    # com a mesma checagem de memória — se estiver apertada, espera mais um
+    # ciclo em vez de insistir. A faixa continua marcada até conseguir; perder
+    # o "tocando agora" não perde o scrobble, que é escrito na fila à parte.
+    if [ -n "$tid_anunciar" ]; then
+        tem_memoria || return 0
+        tid_anunciar=""
+        anunciar_tidal
         return 0
     fi
 
@@ -1246,6 +1267,9 @@ pendente_desde=""
 # faixas caem numa passada só.
 ultima_colheita=""
 tid_pendente=""
+# Faixa do Tidal com metadados já buscados esperando o "tocando agora". Fica
+# num ciclo à parte para não haver dois curl ao mesmo tempo. Ver olhar_tidal.
+tid_anunciar=""
 tid_tentar=0
 if [ "$agora" -lt "$PISO" ]; then
     printf 'c1\t%s\n' "$agora" >> "$FILA"
