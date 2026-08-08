@@ -46,6 +46,15 @@ Two consequences worth knowing:
   it no longer needs the duration — and therefore the network — while the track
   is running.
 
+**When a Tidal scrobble reaches Last.fm:** nothing goes out while you keep
+playing — a track change does not count, because the audio never stops. Once
+you do stop, the daemon resolves one pending track per loop and each resolved
+track pulls the send in to 45 seconds. The loop stays at its fast pace while
+anything is pending, so a twenty-track session drains in about five minutes
+instead of a quarter of an hour. The timestamps are the real ones: every track
+carries the moment it started and ended, so a late send does not shift anything
+on your profile.
+
 Tracks shorter than 25 seconds are dropped before they reach the pending file.
 They could never pass the 90% rule anyway, and skipping through a list used to
 spend one network lookup on each one.
