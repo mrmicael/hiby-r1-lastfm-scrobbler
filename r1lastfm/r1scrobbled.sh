@@ -196,9 +196,6 @@ TICK=/tmp/.r1sc.tick
 
 API=https://ws.audioscrobbler.com/2.0/
 API_HOST=ws.audioscrobbler.com
-# O caminho sozinho, para o ajudante residente — ele recebe host e caminho
-# separados, porque é ele quem guarda a conexão por host.
-API_CAMINHO=/2.0/
 # Dois lugares onde o pacote de certificados pode estar: no cartão (útil
 # quando /usr/data está apertado) ou junto do próprio scrobbler.
 CACERT_SD=/data/mnt/sd_0/.r1lastfm/cacert.pem
@@ -271,19 +268,7 @@ AGORA=0
 # acontece quando há Tidal tocando, e nesse caso a rede já está de pé.
 TIDAL=1
 
-# Pode usar a rede ENQUANTO uma faixa do Tidal está tocando?
-#
-#   auto  (padrão)  só quando o ajudante residente está de pé
-#   1               sempre, mesmo caindo no curl
-#   0               nunca
-#
-# O "auto" é a conclusão de toda esta investigação. O que derrubava o aparelho
-# não era a rede: era CRIAR algo no meio da reprodução — um fork, um exec, 1,6
-# MB de binário mapeado, um socket, um handshake. Com o r1net de pé nada disso
-# acontece: a conexão já está aberta e mandar um pedido é escrever numa linha
-# num descritor. Sem ele, cai no curl, e aí a resposta volta a ser "não".
-#
-# Ou seja, a permissão passou a depender do CUSTO, e não de um palpite meu.
+# Pode usar a rede ENQUANTO uma faixa do Tidal está tocando? Não, por padrão.
 #
 # Um único interruptor para as duas coisas que precisariam dela — buscar os
 # dados da faixa e anunciar o "tocando agora" —, porque separá-las não faria
@@ -303,12 +288,10 @@ TIDAL=1
 #     requisição feita, o que quer dizer que existe pelo menos uma causa que
 #     não é esta.
 #
-# Não tenho um modelo que explique as três coisas ao mesmo tempo — e por isso o
-# padrão não é "sim", é "só quando não custa nada".
-#
-# A maquinaria da janela calma continua no lugar em todos os casos: nada nos
-# primeiros CALMA segundos da faixa, nada no instante da troca, e nunca duas
-# requisições no mesmo ciclo. O ajudante tira o custo; a janela tira o azar.
+# Não tenho um modelo que explique as três coisas ao mesmo tempo. Ligar isto por
+# padrão seria apostar a estabilidade do aparelho de quem instala num palpite
+# meu. Quem quiser tentar é só pôr 1 aqui: toda a maquinaria da janela calma
+# continua no lugar, e é ela que passa a valer.
 #
 # Com isto em 0, quase nada se perde. O cache é lido normalmente — ele não usa
 # rede —, então uma faixa que você já ouviu vira linha da fila no instante em
@@ -317,16 +300,7 @@ TIDAL=1
 #
 # Tocando do cartão, o "tocando agora" segue pelo AGORA e não passa por aqui:
 # aquele caminho nunca deu problema e não é afetado.
-REDE_NO_TIDAL=auto
-
-# Responde à pergunta acima, já resolvido o "auto".
-pode_rede_tocando() {
-    case "$REDE_NO_TIDAL" in
-        1) return 0 ;;
-        0) return 1 ;;
-        *) [ "$rede_pronta" = 1 ] && return 0; return 1 ;;
-    esac
-}
+REDE_NO_TIDAL=0
 
 # De quanto em quanto tempo olhar se dá para enviar. Doze minutos é o piso
 # garantido: mesmo sem nada acontecer, a fila sai nesse ritmo.
@@ -904,112 +878,7 @@ resolver() {
 resolver_api() { resolver "$API_HOST"; }
 
 # Uma chamada ao curl, com o IP já resolvido quando dá.
-# ---------------------------------------------------------------------------
-# O ajudante de rede residente.
-#
-# Ver o comentário longo no r1net.c. Em resumo: com o Tidal tocando o aparelho
-# não aguenta que se CRIE nada — nem um fork, nem um exec, nem um socket, nem
-# um handshake. O ajudante sobe no boot, quando há 22 MB livres, paga todo
-# esse custo uma vez, e depois fica parado num fifo com a conexão TLS aberta.
-#
-# Daqui em diante, mandar um pedido é escrever uma linha num descritor que já
-# está aberto: `printf` e redirecionamento são internos do shell, então não
-# nasce processo nenhum. Medido no R1: 784 KB residentes parado, 876 KB depois
-# do primeiro pedido, e 876 KB depois do quarto.
-#
-# Os descritores 8 e 9 ficam abertos em modo leitura-e-escrita de propósito.
-# Abrir um fifo só para escrita bloqueia até aparecer um leitor, e só para
-# leitura bloqueia até aparecer um escritor; em leitura-e-escrita não bloqueia
-# nunca, e o fifo nunca fica sem ponta — o que evita o `read` devolver EOF em
-# roda-viva entre um pedido e outro.
-AJUDANTE=$DIR/r1net
-FIFO_PED=/tmp/.r1sc.net
-FIFO_RESP=/tmp/.r1sc.netr
-# Estas três nascem aqui, e não lá embaixo com as outras variáveis do laço:
-# a subir_ajudante é chamada ANTES daquele bloco, e uma inicialização depois
-# dela zeraria o rede_pronta logo em seguida — o ajudante subiria e ninguém
-# usaria.
-rede_pronta=0
-http_seq=0
-http_codigo=0
-
-subir_ajudante() {
-    rede_pronta=0
-    [ -x "$AJUDANTE" ] || return 1
-    _aj_ca=$(cacert)
-    [ -n "$_aj_ca" ] || return 1
-
-    # Um ajudante de uma execução anterior não serve: os fifos dele são outros
-    # arquivos, e ele estaria escrevendo num vazio.
-    for _p in /proc/[0-9]*; do
-        _c=$(tr '\0' ' ' < "$_p/cmdline" 2>/dev/null)
-        case "$_c" in *r1net*) kill "${_p#/proc/}" 2>/dev/null ;; esac
-    done
-    rm -f "$FIFO_PED" "$FIFO_RESP"
-    mkfifo "$FIFO_PED" "$FIFO_RESP" 2>/dev/null || return 1
-
-    "$AJUDANTE" "$FIFO_PED" "$FIFO_RESP" "$_aj_ca" "$LOG" &
-    _aj_pid=$!
-    # Um instante para ele abrir o fifo. Se não abrir, os `exec` abaixo ainda
-    # assim não travam — é para isso que servem os modos de leitura-e-escrita.
-    sleep 1
-    if ! kill -0 "$_aj_pid" 2>/dev/null; then
-        registrar "r1net nao subiu; a rede segue pelo curl"
-        return 1
-    fi
-    exec 8<> "$FIFO_PED" || return 1
-    exec 9<> "$FIFO_RESP" || return 1
-    rede_pronta=1
-    registrar "r1net de pe (pid $_aj_pid): a rede deixa de criar processos"
-    return 0
-}
-
-# http_pedir <metodo> <host> <ip|-> <caminho> <corpo|-> <saida|-> <cabs|->
-#
-# Devolve 0 quando o servidor respondeu de 200 a 299. O código fica em
-# $http_codigo, para quem quiser distinguir um 400 de uma queda de rede.
-http_pedir() {
-    http_codigo=0
-    [ "$rede_pronta" = 1 ] || return 2
-    http_seq=$((http_seq + 1))
-    _hid="q$http_seq"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$_hid" "$1" "$2" "$3" "$4" "$5" "$6" "$7" >&8 2>/dev/null || {
-        rede_pronta=0
-        return 2
-    }
-    # Uma resposta atrasada de um pedido que expirou continuaria no fifo e
-    # seria lida como se fosse desta. O id na resposta é o que separa as duas.
-    _voltas=0
-    while [ "$_voltas" -lt 4 ]; do
-        _voltas=$((_voltas + 1))
-        IFS='	' read -t 45 -r _rid _rcod _rby <&9 2>/dev/null || {
-            registrar "r1net nao respondeu a tempo"
-            return 1
-        }
-        [ "$_rid" = "$_hid" ] || continue
-        http_codigo=$_rcod
-        # Sucesso aqui quer dizer "o servidor RESPONDEU", e não "respondeu que
-        # sim" — de propósito, para casar com o curl, que também sai com zero
-        # num HTTP 400. Quem chama continua lendo o corpo para saber o que o
-        # Last.fm achou; tratar um 400 como falha de rede faria o daemon
-        # perder as mensagens de erro dele (sessão inválida, e afins) e tentar
-        # de novo para sempre.
-        case "$_rcod" in
-            1[0-9][0-9]|2[0-9][0-9]|3[0-9][0-9]|4[0-9][0-9]|5[0-9][0-9])
-                return 0 ;;
-            *) return 1 ;;
-        esac
-    done
-    return 1
-}
-
 chamar_curl() {
-    # Pelo ajudante, quando ele está de pé: sem fork, sem exec, sem handshake.
-    http_pedir POST "$API_HOST" "${ip_api:--}" "$API_CAMINHO" \
-               "$CORPO" "$RESP" -
-    _rcl=$?
-    [ "$_rcl" -ne 2 ] && return "$_rcl"
     if [ -n "$ip_api" ]; then
         "$CURL" -sS --max-time 45 --cacert "$1" \
             --resolve "$API_HOST:443:$ip_api" \
@@ -1093,36 +962,23 @@ anunciar() {
         return 1
     fi
     queixei_cacert=0
-    http_pedir POST "$API_HOST" "${ip_api:--}" "$API_CAMINHO" \
-               "$CORPO_NP" "$RESP_NP" -
-    rc=$?
-    if [ "$rc" = 2 ]; then
-        if [ -n "$ip_api" ]; then
-            "$CURL" -sS --max-time 20 --cacert "$ca" \
-                --resolve "$API_HOST:443:$ip_api" \
-                -H "Content-Type: application/x-www-form-urlencoded" \
-                -A "hiby-r1-scrobbler/1.0" \
-                --data-binary "@$CORPO_NP" -o "$RESP_NP" "$API" 2>>"$LOG"
-        else
-            "$CURL" -sS --max-time 20 --cacert "$ca" \
-                -H "Content-Type: application/x-www-form-urlencoded" \
-                -A "hiby-r1-scrobbler/1.0" \
-                --data-binary "@$CORPO_NP" -o "$RESP_NP" "$API" 2>>"$LOG"
-        fi
-        rc=$?
+    if [ -n "$ip_api" ]; then
+        "$CURL" -sS --max-time 20 --cacert "$ca" \
+            --resolve "$API_HOST:443:$ip_api" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -A "hiby-r1-scrobbler/1.0" \
+            --data-binary "@$CORPO_NP" -o "$RESP_NP" "$API" 2>>"$LOG"
+    else
+        "$CURL" -sS --max-time 20 --cacert "$ca" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -A "hiby-r1-scrobbler/1.0" \
+            --data-binary "@$CORPO_NP" -o "$RESP_NP" "$API" 2>>"$LOG"
     fi
+    rc=$?
     rm -f "$CORPO_NP" "$RESP_NP"
     # "Tocando agora" não vai para fila: se não deu, o momento passou. Não
     # vale gastar rádio tentando de novo uma faixa que já mudou.
     [ "$rc" = 0 ] || return 1
-    # A duração é o que impede o MESMO anúncio de sair a cada volta do laço:
-    # o olhar_tocando só reanuncia quando ela já passou. Com ela em zero, a
-    # comparação é sempre verdadeira e a mesma faixa vai para o Last.fm de 15
-    # em 15 segundos.
-    #
-    # Isto já quebrou: um `return` posto cedo demais no caminho do ajudante
-    # pulava esta linha, e o aparelho ficou reanunciando a mesma música sem
-    # parar. Por isso os dois caminhos terminam AQUI, num ponto só.
     np_dur_efetiva=$np_dur
     return 0
 }
@@ -1166,25 +1022,6 @@ tidal_pais() {
     [ -n "$ip_tidal" ] || ip_tidal=$(resolver "$TIDAL_API")
     t_res=""
     [ -n "$ip_tidal" ] && t_res="--resolve $TIDAL_API:443:$ip_tidal"
-    if escrever_cabecalho_tidal "$t_tok"; then
-        rm -f "$TIDAL_JSON"
-        http_pedir GET "$TIDAL_API" "${ip_tidal:--}" /v1/sessions \
-                   - "$TIDAL_JSON" "$CAB_TIDAL"
-        _rcp=$?
-        rm -f "$CAB_TIDAL"
-        if [ "$_rcp" = 0 ]; then
-            tid_pais=$(tr ',' '\n' < "$TIDAL_JSON" | grep countryCode \
-                       | tr -d '"' | cut -d: -f2)
-            rm -f "$TIDAL_JSON"
-            case "$tid_pais" in [A-Za-z][A-Za-z]) echo "$tid_pais"; return 0 ;;
-            esac
-            tid_pais=""; return 1
-        fi
-        rm -f "$TIDAL_JSON"
-        [ "$_rcp" = 1 ] && { tid_pais=""; return 1; }
-        # rc 2 = sem ajudante; cai no curl abaixo.
-    fi
-    [ -x "$CURL" ] || return 1
     tid_pais=$("$CURL" -sS --max-time 25 --cacert "$t_ca" $t_res \
         -H "Authorization: Bearer $t_tok" -H "Accept: application/json" \
         "https://$TIDAL_API/v1/sessions" 2>>"$LOG" \
@@ -1193,32 +1030,10 @@ tidal_pais() {
     echo "$tid_pais"
 }
 
-# O cabeçalho com o token do Tidal, num arquivo só nosso.
-#
-# Ele NÃO pode viajar pelo fifo: o fifo fica em /tmp e qualquer processo do
-# aparelho pode lê-lo. Pelo caminho do arquivo o ajudante lê o token
-# diretamente, e o que passa pelo fifo é só o nome do arquivo. O `umask` antes
-# do redirecionamento é o que garante que ele nasça sem permissão para
-# terceiros — criar e depois dar chmod deixaria uma fresta entre as duas
-# coisas.
-CAB_TIDAL=/tmp/.r1sc.cab
-escrever_cabecalho_tidal() {
-    [ -n "$1" ] || return 1
-    _umask_antes=$(umask)
-    umask 077
-    rm -f "$CAB_TIDAL"
-    {
-        printf 'Authorization: Bearer %s\r\n' "$1"
-        printf 'Accept: application/json\r\n'
-    } > "$CAB_TIDAL" 2>/dev/null || { umask "$_umask_antes"; return 1; }
-    umask "$_umask_antes"
-    return 0
-}
-
 # Metadados de uma faixa. Preenche tid_art / tid_tit / tid_alb / tid_dur.
 tidal_meta() {
     tid_art=""; tid_tit=""; tid_alb=""; tid_dur=0
-    [ -x "$REMETENTE" ] || return 1
+    [ -x "$CURL" ] && [ -x "$REMETENTE" ] || return 1
     tem_rede || return 1
     t_ca=$(cacert); [ -n "$t_ca" ] || return 1
     t_tok=$(tidal_token) || return 1
@@ -1227,24 +1042,10 @@ tidal_meta() {
     t_res=""
     [ -n "$ip_tidal" ] && t_res="--resolve $TIDAL_API:443:$ip_tidal"
     rm -f "$TIDAL_JSON"
-
-    _feito=0
-    if escrever_cabecalho_tidal "$t_tok"; then
-        http_pedir GET "$TIDAL_API" "${ip_tidal:--}" \
-                   "/v1/tracks/$1?countryCode=$t_pais" \
-                   - "$TIDAL_JSON" "$CAB_TIDAL"
-        _rcm=$?
-        rm -f "$CAB_TIDAL"
-        [ "$_rcm" = 0 ] && _feito=1
-        [ "$_rcm" = 1 ] && return 1
-    fi
-    if [ "$_feito" = 0 ]; then
-        [ -x "$CURL" ] || return 1
-        "$CURL" -sS --max-time 25 --cacert "$t_ca" $t_res \
-            -H "Authorization: Bearer $t_tok" -H "Accept: application/json" \
-            "https://$TIDAL_API/v1/tracks/$1?countryCode=$t_pais" \
-            -o "$TIDAL_JSON" 2>>"$LOG" || return 1
-    fi
+    "$CURL" -sS --max-time 25 --cacert "$t_ca" $t_res \
+        -H "Authorization: Bearer $t_tok" -H "Accept: application/json" \
+        "https://$TIDAL_API/v1/tracks/$1?countryCode=$t_pais" \
+        -o "$TIDAL_JSON" 2>>"$LOG" || return 1
     # Um campo por linha, como o `r1collect buscar` já faz.
     { read -r tid_art; read -r tid_tit; read -r tid_alb; read -r tid_dur; } \
         <<FIM_META
@@ -1550,7 +1351,7 @@ olhar_tidal() {
     # Daqui para baixo é rede, e com o Tidal tocando ela depende de permissão.
     # Sem ela, tid_rede_ok fica em 0 e o daemon inteiro — consulta, anúncio,
     # envio e planilha — espera o áudio parar. É o padrão.
-    pode_rede_tocando || return 0
+    [ "$REDE_NO_TIDAL" = 1 ] || return 0
 
     # E mesmo com permissão, nada nos primeiros CALMA segundos da faixa.
     [ $((t_agora - tid_desde)) -ge "$CALMA" ] || return 0
@@ -1607,33 +1408,20 @@ tidal_fechar() {
 # passados os CALMA segundos desde a troca, nunca no mesmo ciclo de uma
 # consulta de metadados, e no máximo uma vez por faixa.
 anunciar_tidal() {
-    [ -x "$REMETENTE" ] && [ -s "$SK" ] || return 1
+    [ -x "$REMETENTE" ] && [ -x "$CURL" ] && [ -s "$SK" ] || return 1
     tem_rede || return 1
     t_ca=$(cacert); [ -n "$t_ca" ] || return 1
-    # O r1send monta e assina o corpo. Continua sendo um processo, mas ele tem
-    # 120 KB e não fala com a rede: é o curl, com 1,6 MB e um handshake, que
-    # não podia existir aqui.
     "$REMETENTE" agora "$SK" "$SEGREDO" "$APIKEY" "$CORPO_NP" \
         "$tid_art" "$tid_tit" "$tid_alb" "$tid_dur" >/dev/null 2>>"$LOG" || return 1
     [ -n "$ip_api" ] || ip_api=$(resolver "$API_HOST")
-
-    http_pedir POST "$API_HOST" "${ip_api:--}" "$API_CAMINHO" \
-               "$CORPO_NP" "$RESP_NP" -
+    t_res=""
+    [ -n "$ip_api" ] && t_res="--resolve $API_HOST:443:$ip_api"
+    "$CURL" -sS --max-time 20 --cacert "$t_ca" $t_res \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -A "hiby-r1-scrobbler/1.0" \
+        --data-binary "@$CORPO_NP" -o "$RESP_NP" \
+        "$API" 2>>"$LOG"
     rc=$?
-    if [ "$rc" = 2 ]; then
-        # Sem ajudante: o caminho antigo. Ele funciona, e é o que rodava antes
-        # deste programa existir — só custa um processo de 1,6 MB no pior
-        # momento, que é justamente o que se quer evitar.
-        t_res=""
-        [ -n "$ip_api" ] && t_res="--resolve $API_HOST:443:$ip_api"
-        [ -x "$CURL" ] || { rm -f "$CORPO_NP" "$RESP_NP"; return 1; }
-        "$CURL" -sS --max-time 20 --cacert "$t_ca" $t_res \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -A "hiby-r1-scrobbler/1.0" \
-            --data-binary "@$CORPO_NP" -o "$RESP_NP" \
-            "$API" 2>>"$LOG"
-        rc=$?
-    fi
     rm -f "$CORPO_NP" "$RESP_NP"
     [ "$rc" = 0 ] && registrar "tocando agora (tidal): $tid_art — $tid_tit"
     return $rc
@@ -1698,12 +1486,6 @@ tentar_enviar() {
 # O cartão é procurado antes do primeiro registro, para o cabeçalho da sessão
 # já cair nele.
 achar_cartao && aparar_log_sd
-
-# O ajudante sobe AGORA, na partida do daemon — que é a partida do aparelho.
-# É o momento em que há 22 MB livres e blocos contíguos de 16 MB, e é por isso
-# que todo o custo dele é pago aqui. Se não subir, nada quebra: a rede volta a
-# ser o curl de sempre, com o custo de sempre.
-subir_ajudante || rede_pronta=0
 
 agora=$(date +%s)
 printf 'b1\t%s\n' "$agora" >> "$FILA"
