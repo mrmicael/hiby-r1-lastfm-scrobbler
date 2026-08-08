@@ -1231,7 +1231,7 @@ else:
 
 print()
 print("=" * 74)
-print("13. com o Tidal tocando, NENHUM processo de rede nasce")
+print("13. no Tidal, a rede so acontece na janela calma")
 print("=" * 74)
 # O aparelho travava tocando pelo Tidal, e nao tocando do cartao. Medido no R1:
 # com o Tidal tocando sobram ~1,5 MB livres e o maior bloco contiguo de memoria
@@ -1267,7 +1267,9 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-echo "$url" >> REGISTRO
+# Com a hora: e ela que prova que os dois curl de uma faixa nova caem em
+# ciclos diferentes, e nao um em cima do outro.
+echo "$(date +%s) $url" >> REGISTRO
 case "$url" in
     # O formato importa: o daemon quebra a resposta nas virgulas e pega o
     # campo depois dos dois-pontos. Um json sem virgula deixaria a chave
@@ -1335,70 +1337,95 @@ sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/tid/scrobble#' \\
     -e 's#^TIDAL_JSON=.*#TIDAL_JSON={T}/tid/tmp/tj#' \\
     -e 's#^CACERT_SD=.*#CACERT_SD={T}/tid/nao-existe.pem#' \\
     -e 's#^AGORA=0#AGORA=1#' \\
-    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^ASSENTAR=5#ASSENTAR=1#' \\
-    -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=1#' \\
+    -e 's#^RAPIDO=15#RAPIDO=2#' -e 's#^ASSENTAR=5#ASSENTAR=1#' \\
+    -e 's#^CALMA=20#CALMA=6#' \\
+    -e 's#^ESPERA_IMEDIATO=45#ESPERA_IMEDIATO=2#' -e 's#^LENTO=60#LENTO=2#' \\
     {p} > {T}/tid/rs
 chmod 755 {T}/tid/rs
 
 busybox ash {T}/tid/rs &
 PID=$!
-# A faixa precisa passar dos 25s que o tidal_pendurar exige. Abaixo disso ela
-# nao passaria da regra dos 90% nem na faixa mais curta que o Last.fm aceita,
-# e anotar seria gastar uma consulta a rede para um scrobble que sera negado —
-# que e exatamente o que acontece aos montes quando se percorre uma lista.
-sleep 32
-# Trocou de faixa, ainda no Tidal. E o instante em que o player esta pedindo
-# memoria para a faixa nova — o pior momento possivel para alguem competir.
-echo 222 > {T}/tid/ctrltid
-touch {T}/tid/user.ini
-sleep 6
-echo "=== CURL DURANTE A REPRODUCAO ==="
+# Ainda dentro da janela calma (CALMA=6): a faixa acabou de entrar e o player
+# esta alocando. Aqui nao pode ter saido nada para a rede.
+sleep 4
+echo "=== DENTRO DA JANELA CALMA ==="
 echo "CHAMADAS=$(wc -l < {T}/tid/curl.log 2>/dev/null || echo 0)"
-echo "=== PENDENTES ==="
-cat {T}/tid/scrobble/tidal_pend 2>/dev/null || echo "(nenhum)"
 
-# O audio parou. Agora ha memoria, e e aqui que a rede pode acontecer.
-printf 'pcm=0\\n\\n' > {T}/tid/ctrl
-sleep 8
+# Passada a janela: os metadados saem numa volta e o anuncio na seguinte.
+sleep 10
+echo "=== DEPOIS DA JANELA ==="
+cat {T}/tid/curl.log 2>/dev/null || echo "(nada)"
+
+# Troca de faixa. Os dados da 111 ja estao em maos, entao a linha da fila tem
+# de sair AGORA, sem rede — e o instante da troca tem de continuar limpo.
+antes_troca=$(wc -l < {T}/tid/curl.log 2>/dev/null || echo 0)
+echo 222 > {T}/tid/ctrltid
+sleep 3
+echo "=== NA TROCA DE FAIXA ==="
+echo "CURL_NA_TROCA=$(( $(wc -l < {T}/tid/curl.log 2>/dev/null || echo 0) - antes_troca ))"
+echo "=== FILA APOS A TROCA ==="
+grep 'tidal:111' {T}/tid/scrobble/fila.tsv 2>/dev/null || echo "(nada)"
+
+# Volta para a 111, que ja esta no cache: nenhuma consulta nova deve sair
+# para ela, so o anuncio.
+sleep 12
+echo 111 > {T}/tid/ctrltid
+sleep 14
 kill -TERM $PID 2>/dev/null
 sleep 2
-echo "=== CURL DEPOIS DO SILENCIO ==="
-echo "CHAMADAS=$(grep -c tidal {T}/tid/curl.log 2>/dev/null || echo 0)"
-echo "=== URLS ==="
-sort -u {T}/tid/curl.log 2>/dev/null | head -5
-echo "=== FILA ==="
-grep tidal {T}/tid/scrobble/fila.tsv 2>/dev/null || echo "(nenhuma)"
-echo "=== SOBROU PENDENTE? ==="
-echo "RESTO=$(wc -l < {T}/tid/scrobble/tidal_pend 2>/dev/null || echo 0)"
+echo "=== CONSULTAS A 111 (cache: tem de ser 1) ==="
+echo "CONSULTAS_111=$(grep -c 'tracks/111' {T}/tid/curl.log 2>/dev/null || echo 0)"
+echo "=== REGISTRO COMPLETO DO CURL ==="
+cat {T}/tid/curl.log 2>/dev/null
+echo "=== CACHE ==="
+cat {T}/tid/scrobble/tidal_cache 2>/dev/null || echo "(vazio)"
 echo "=== LOG ==="
 cat {T}/tid/tmp/log 2>/dev/null || true
 """
-res16 = r.posix_script(script16, name="daemon-tidal-sem-rede", mutating=False,
-                       quiet=True, timeout=180)
+res16 = r.posix_script(script16, name="daemon-tidal-janela-calma",
+                       mutating=False, quiet=True, timeout=240)
 
-_durante = bloco(res16.stdout, "=== CURL DURANTE A REPRODUCAO ===")
-_depois = bloco(res16.stdout, "=== CURL DEPOIS DO SILENCIO ===")
-_pend = bloco(res16.stdout, "=== PENDENTES ===")
-print("\n".join("   " + l for l in res16.stdout.splitlines()[:14]))
+print("\n".join("   " + l for l in res16.stdout.splitlines()[:26]))
 
-check("nenhum curl enquanto o Tidal toca",
-      _durante == "CHAMADAS=0",
-      f"{_durante} — rodou rede com o audio saindo, que e o que derrubava "
-      f"o player")
-check("a faixa que terminou ficou anotada, sem custar rede",
-      "111" in _pend,
-      f"pendentes={_pend!r}")
-check("e a consulta acontece assim que o audio para",
-      _depois != "CHAMADAS=0",
-      f"{_depois} — nunca foi buscar os metadados, o scrobble ficaria preso")
-_fila16 = bloco(res16.stdout, "=== FILA ===")
-check("a faixa do Tidal virou linha da fila, com os metadados",
+_calma = bloco(res16.stdout, "=== DENTRO DA JANELA CALMA ===")
+check("nada de rede nos primeiros segundos da faixa",
+      _calma == "CHAMADAS=0",
+      f"{_calma} — encostou na rede enquanto o player alocava a faixa nova")
+
+_reg = res16.stdout.split("=== REGISTRO COMPLETO DO CURL ===")[-1] \
+    .split("=== CACHE ===")[0] if "=== REGISTRO COMPLETO DO CURL ===" \
+    in res16.stdout else ""
+_linhas = [l.split(None, 1) for l in _reg.strip().splitlines()
+           if l.strip() and l.strip()[0].isdigit()]
+_tid = [int(t) for t, u in _linhas if "tidal.com" in u and "tracks/" in u]
+_lfm = [int(t) for t, u in _linhas if "audioscrobbler" in u]
+
+check("os metadados foram buscados depois da janela",
+      len(_tid) >= 1, f"nenhuma consulta de faixa saiu: {_reg.strip()[:120]!r}")
+check("o 'tocando agora' voltou a sair",
+      len(_lfm) >= 1, "nenhum anuncio ao Last.fm")
+if _tid and _lfm:
+    _gap = min(abs(a - b) for a in _tid for b in _lfm)
+    check("os dois curl de uma faixa nova caem em ciclos diferentes",
+          _gap >= 2,
+          f"saiu tudo no mesmo instante (diferenca de {_gap}s) — era isto que "
+          f"punha dois processos grandes ao mesmo tempo")
+
+check("a troca de faixa nao dispara rede nenhuma",
+      bloco(res16.stdout, "=== NA TROCA DE FAIXA ===") == "CURL_NA_TROCA=0",
+      bloco(res16.stdout, "=== NA TROCA DE FAIXA ===")
+      + " — o instante da troca e o unico que a medicao apontou como ruim")
+
+_fila16 = bloco(res16.stdout, "=== FILA APOS A TROCA ===")
+check("a faixa entra na fila assim que acaba, com os metadados",
       "tidal:111" in _fila16 and "Artista X" in _fila16,
-      f"fila={_fila16!r}")
-check("e o pendente saiu do arquivo depois de resolvido",
-      bloco(res16.stdout, "=== SOBROU PENDENTE? ===") == "RESTO=0",
-      bloco(res16.stdout, "=== SOBROU PENDENTE? ===")
-      + " — resolvida e nao removida, ela voltaria a ser consultada para sempre")
+      f"fila={_fila16!r} — com os dados em maos ela nao precisa esperar nada")
+
+check("faixa ja conhecida nao e perguntada de novo",
+      bloco(res16.stdout, "=== CONSULTAS A 111 (cache: tem de ser 1) ===")
+      == "CONSULTAS_111=1",
+      bloco(res16.stdout, "=== CONSULTAS A 111 (cache: tem de ser 1) ===")
+      + " — o cache existe para que repetir um album nao custe rede")
 
 
 print()

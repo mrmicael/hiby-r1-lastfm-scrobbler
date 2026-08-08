@@ -579,10 +579,10 @@ atualizar_csv() {
     # planilha é para ler depois, no computador — atrasar um minuto não custa
     # nada a ninguém. Quem chama com "ja" (o desligamento) não espera.
     if [ "$1" != ja ]; then
-        # Com o Tidal tocando, nem isto: reescrever a planilha é um r1send mais
-        # a gravação inteira no cartão. Fica para quando o som parar. Quem
-        # chama com "ja" é o desligamento, e aí o áudio já acabou.
-        [ "$tid_tocando" = 1 ] && return 0
+        # Fora da janela calma, nem isto: reescrever a planilha é um r1send
+        # mais a gravação inteira no cartão. Quem chama com "ja" é o
+        # desligamento, e aí o áudio já acabou.
+        [ "$tid_rede_ok" != 1 ] && return 0
         _ag_csv=$(date +%s)
         if [ -n "$csv_em" ] && [ $((_ag_csv - csv_em)) -lt 60 ] 2>/dev/null; then
             return 0
@@ -1020,7 +1020,38 @@ FIM_META
     rm -f "$TIDAL_JSON"
     [ -n "$tid_art" ] && [ -n "$tid_tit" ] || return 1
     case "$tid_dur" in ''|*[!0-9]*) tid_dur=0 ;; esac
+    tidal_cache_gravar "$1"
     return 0
+}
+
+# Os metadados desta faixa já estão em casa? Preenche tid_art/tid_tit/tid_alb/
+# tid_dur e devolve 0 se sim. É leitura de arquivo: nenhum processo, nenhuma
+# rede — pode ser feito a qualquer momento, inclusive na troca de faixa.
+tidal_cache_ler() {
+    [ -s "$CACHE_TIDAL" ] || return 1
+    while IFS='	' read -r _cid _cart _ctit _calb _cdur; do
+        [ "$_cid" = "$1" ] || continue
+        tid_art=$_cart; tid_tit=$_ctit; tid_alb=$_calb; tid_dur=$_cdur
+        case "$tid_dur" in ''|*[!0-9]*) tid_dur=0 ;; esac
+        [ -n "$tid_art" ] && [ -n "$tid_tit" ] || return 1
+        return 0
+    done < "$CACHE_TIDAL"
+    return 1
+}
+
+tidal_cache_gravar() {
+    [ -n "$tid_art" ] && [ -n "$tid_tit" ] || return 0
+    printf '%s\t%s\t%s\t%s\t%s\n' \
+        "$1" "$tid_art" "$tid_tit" "$tid_alb" "$tid_dur" >> "$CACHE_TIDAL"
+    # Não deixa crescer para sempre. As mais novas ficam: quem ouviu trezentas
+    # faixas diferentes desde a última poda não vai voltar às primeiras tão
+    # cedo, e o pior que acontece é uma consulta a mais.
+    _n=$(wc -l < "$CACHE_TIDAL" 2>/dev/null)
+    case "$_n" in ''|*[!0-9]*) return 0 ;; esac
+    if [ "$_n" -gt $((CACHE_MAX * 2)) ]; then
+        _fim=$(tail -n "$CACHE_MAX" "$CACHE_TIDAL" 2>/dev/null)
+        [ -n "$_fim" ] && printf '%s\n' "$_fim" > "$CACHE_TIDAL"
+    fi
 }
 
 # Faixas do Tidal que terminaram e ainda não viraram linha da fila: id,
@@ -1046,6 +1077,29 @@ FIM_META
 # texto. Nenhum processo, nenhuma alocação, nenhuma rede. Tudo o que precisa
 # da rede espera o silêncio.
 PEND_TIDAL=$DIR/tidal_pend
+
+# Quanto esperar, depois de a faixa trocar, antes de encostar na rede.
+#
+# Medido no aparelho: um curl no MEIO da faixa custa 896 KB de pico residente,
+# derruba a memória livre em uns 116 KB e não mexe na fragmentação — o maior
+# bloco contíguo continua na ordem 7 antes, durante e depois. Cinco handshakes
+# seguidos com o Tidal tocando não incomodaram o player.
+#
+# O que a v14–v19 faziam de diferente não era o tamanho: era a HORA. Elas
+# disparavam no instante da troca, que é quando o player está pedindo memória
+# para a faixa nova. Vinte segundos depois disso a alocação dele já aconteceu.
+CALMA=20
+
+# Metadados de faixas do Tidal já consultadas: id, artista, título, álbum e
+# duração, um por linha.
+#
+# Uma faixa só precisa ser perguntada uma vez na vida. Sem isto, ouvir o mesmo
+# álbum duas vezes custa o dobro de consultas, e uma faixa repetida custa uma
+# consulta por repetição — tudo isso com o áudio tocando, que é o que se quer
+# evitar. Com o cache, quase toda faixa que você ouve de novo não custa rede
+# nenhuma: nem para anunciar, nem para entrar na fila.
+CACHE_TIDAL=$DIR/tidal_cache
+CACHE_MAX=300
 
 # Uma faixa do Tidal terminou. É só um `printf` num arquivo — o redirecionamento
 # e o printf são internos do shell, então isto custa zero processos.
@@ -1080,12 +1134,23 @@ tidal_desempilhar() {
 tidal_resolver() {
     [ -s "$PEND_TIDAL" ] || return 0
     [ -x "$CURL" ] || return 0
-    tem_memoria || return 0
-    tem_rede || return 0
-    [ "$t_agora" -lt "$tid_tentar" ] 2>/dev/null && return 0
 
     IFS='	' read -r _pid _pini _pfim < "$PEND_TIDAL" || return 0
     case "$_pid" in ''|*[!0-9]*) tidal_desempilhar; return 0 ;; esac
+
+    # O cache primeiro: uma faixa já perguntada alguma vez não custa rede, e
+    # aí não há motivo para esperar nada. Sai na hora.
+    if tidal_cache_ler "$_pid"; then
+        tid_id="$_pid"
+        tidal_escrever "$_pini" "$_pfim"
+        tidal_desempilhar
+        return 0
+    fi
+
+    tem_memoria || return 0
+    tem_rede || return 0
+    [ "$t_agora" -lt "$tid_tentar" ] 2>/dev/null && return 0
+    tid_rede_ok=0
 
     if tidal_meta "$_pid"; then
         tid_falhas=0
@@ -1185,20 +1250,24 @@ olhar_tidal() {
         t_toca=0
     fi
 
-    # Enquanto o Tidal toca, ninguém encosta na rede. Este é o estado que o
-    # resto do daemon consulta para segurar o envio.
-    tid_tocando=$t_toca
+    # A partir daqui, quem decide se o resto do daemon pode usar a rede nesta
+    # volta é este bloco. Ele começa a volta valendo 1 (ver o laço principal) e
+    # só é zerado nos momentos que a medição apontou como ruins: o instante da
+    # troca, os primeiros CALMA segundos da faixa, e as voltas em que a própria
+    # olhar_tidal já gastou uma ida à rede.
+    tid_rede_ok=0
 
     # Parou de tocar (ou passou a tocar arquivo local): fecha a faixa aberta
     # com a hora de agora. O pcm fecha junto com o áudio, então "agora" está a
     # no máximo um ciclo do fim real.
     if [ "$t_toca" = 0 ]; then
         if [ -n "$tid_id" ]; then
-            tidal_pendurar "$tid_id" "$tid_desde" "$t_agora"
+            tidal_fechar "$t_agora"
             tid_id=""; tid_desde=0
         fi
-        # Silêncio: agora há memória. É o único lugar de onde a consulta ao
-        # Tidal sai, e sai uma faixa por volta.
+        # Silêncio: sobra memória de verdade (22 MB contra 1,5 MB). É aqui que
+        # o que ficou pendente por falta de metadados se resolve, uma por volta.
+        tid_rede_ok=1
         tidal_resolver
         return 0
     fi
@@ -1209,28 +1278,113 @@ olhar_tidal() {
     [ -n "$t_novo" ] || return 0
 
     if [ "$t_novo" != "$tid_id" ]; then
-        # Trocou de faixa. Duas escritas de texto e mais nada: nenhum processo
-        # nasce aqui, que é o ponto de todo este arranjo. O instante da troca
-        # é quando o player está pedindo memória para a faixa nova, e é
-        # exatamente onde não pode haver mais ninguém pedindo.
-        [ -n "$tid_id" ] && tidal_pendurar "$tid_id" "$tid_desde" "$t_agora"
+        # Trocou de faixa. Aqui não nasce processo nenhum: fechar a anterior é
+        # escrita de texto, e a decisão entre "já sei os dados" e "não sei" sai
+        # de uma variável. Este é o instante em que o player está pedindo
+        # memória para a faixa nova — o único momento que a medição apontou
+        # como perigoso, e o único em que este código não faz absolutamente
+        # nada além de escrever.
+        [ -n "$tid_id" ] && tidal_fechar "$t_agora"
         tid_id="$t_novo"
         tid_desde="$t_agora"
+        tid_sabido=0
+        tid_anunciado=0
+        return 0
+    fi
+
+    # Daqui para baixo é a faixa em curso, e nada acontece antes de a janela
+    # calma passar.
+    [ $((t_agora - tid_desde)) -ge "$CALMA" ] || return 0
+
+    # 1. Os dados da faixa. O cache é leitura de arquivo e não custa nada; só
+    #    quem nunca foi perguntado vai à rede — e quando vai, para por aqui:
+    #    o anúncio fica para a volta seguinte, para nunca haver dois curl no
+    #    mesmo ciclo.
+    if [ "$tid_sabido" != 1 ]; then
+        if tidal_cache_ler "$tid_id"; then
+            tid_sabido=1
+        else
+            [ "$t_agora" -lt "$tid_tentar" ] 2>/dev/null && return 0
+            tem_memoria || return 0
+            if tidal_meta "$tid_id"; then
+                tid_sabido=1
+                tid_falhas=0
+            else
+                tid_pais=""
+                tid_tentar=$((t_agora + 60))
+            fi
+            return 0
+        fi
+    fi
+
+    # 2. O "tocando agora". Uma ida à rede, longe da troca de faixa, e uma só
+    #    por faixa. Faixa que você já ouviu antes chega até aqui sem ter
+    #    gastado nada: o cache respondeu.
+    if [ "$AGORA" = 1 ] && [ "$tid_anunciado" != 1 ]; then
+        tem_memoria || return 0
+        tid_anunciado=1
+        anunciar_tidal
+        return 0
+    fi
+
+    # Nada a fazer nesta volta: a faixa já está sabida e já foi anunciada, e a
+    # janela calma passou. É seguro o resto do daemon usar a rede agora.
+    tid_rede_ok=1
+
+    # 3. Mesma faixa há tempo suficiente para ela ter acabado: ou você a pôs no
+    #    repetir, ou o player seguiu para outra que ainda não vimos. Fecha esta
+    #    e recomeça a contagem — é o que faz repetir uma música continuar
+    #    scrobblando. Só dá para saber isto tendo a duração, que agora se tem.
+    if [ "$tid_sabido" = 1 ] && [ "$tid_dur" -gt 0 ] 2>/dev/null &&
+       [ $((t_agora - tid_desde)) -ge "$tid_dur" ]; then
+        t_fim=$((tid_desde + tid_dur))
+        tidal_anotar "$t_fim" "$tid_desde"
+        tid_desde=$t_fim
+        tid_anunciado=0
     fi
 }
 
-# Não existe "tocando agora" para o Tidal.
+# Fecha a faixa do Tidal que estava tocando.
 #
-# Ele foi tirado, e é a única coisa que este conserto custou. Anunciar exige
-# duas idas à rede — os metadados no Tidal e o aviso no Last.fm — e as duas
-# teriam de acontecer com o áudio tocando, que é justamente onde o aparelho
-# não tem memória contígua para dar. Anunciar depois, com o som parado, não
-# seria anunciar nada: a faixa já acabou.
+# Se os dados dela já estão em mãos — o caso comum, porque a janela calma os
+# buscou logo no começo —, a linha da fila sai agora, sem rede. Se não estão
+# (faixa pulada antes dos vinte segundos, ou rede fora do ar), ela vai para o
+# arquivo de pendentes e espera o silêncio.
+tidal_fechar() {
+    if [ "$tid_sabido" = 1 ]; then
+        tidal_anotar "$1" "$tid_desde"
+    else
+        tidal_pendurar "$tid_id" "$tid_desde" "$1"
+    fi
+    tid_sabido=0
+    tid_anunciado=0
+}
+
+# O "tocando agora" da faixa do Tidal. Mesmo caminho do local, sem a parte que
+# consulta o banco: os metadados já estão em mãos quando isto é chamado.
 #
-# O scrobble não se perde: ele é escrito na fila e sai inteiro. O que some é
-# só o "está ouvindo isto agora" no perfil, enquanto a faixa vem do Tidal.
-# Tocando do cartão o anúncio continua igual — aquele caminho nunca teve o
-# problema e não foi tocado.
+# Quem garante a segurança não é esta função: é quem a chama. Ela só roda
+# passados os CALMA segundos desde a troca, nunca no mesmo ciclo de uma
+# consulta de metadados, e no máximo uma vez por faixa.
+anunciar_tidal() {
+    [ -x "$REMETENTE" ] && [ -x "$CURL" ] && [ -s "$SK" ] || return 1
+    tem_rede || return 1
+    t_ca=$(cacert); [ -n "$t_ca" ] || return 1
+    "$REMETENTE" agora "$SK" "$SEGREDO" "$APIKEY" "$CORPO_NP" \
+        "$tid_art" "$tid_tit" "$tid_alb" "$tid_dur" >/dev/null 2>>"$LOG" || return 1
+    [ -n "$ip_api" ] || ip_api=$(resolver "$API_HOST")
+    t_res=""
+    [ -n "$ip_api" ] && t_res="--resolve $API_HOST:443:$ip_api"
+    "$CURL" -sS --max-time 20 --cacert "$t_ca" $t_res \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -A "hiby-r1-scrobbler/1.0" \
+        --data-binary "@$CORPO_NP" -o "$RESP_NP" \
+        "$API" 2>>"$LOG"
+    rc=$?
+    rm -f "$CORPO_NP" "$RESP_NP"
+    [ "$rc" = 0 ] && registrar "tocando agora (tidal): $tid_art — $tid_tit"
+    return $rc
+}
 
 # Uma olhada no que está tocando, e o anúncio se for faixa nova.
 olhar_tocando() {
@@ -1269,14 +1423,16 @@ olhar_tocando() {
 # duas horas, e ao chegar em casa e ligar o WiFi você esperaria todo esse
 # tempo pelos scrobbles. Conferir se há rota custa dois stat(): pode ser feito
 # sempre, sem recuo.
+# $1 = quantos lotes no máximo. Cada lote é um curl.
 tentar_enviar() {
     pode_enviar || return 2
     tem_rede || return 2
     # Uma resolução por rodada, reaproveitada pelos lotes seguintes.
     ip_api=$(resolver_api)
     [ -n "$ip_api" ] || registrar "nao resolvi $API_HOST; deixando o curl tentar"
+    _teto=${1:-20}
     voltas=0
-    while [ "$voltas" -lt 20 ]; do
+    while [ "$voltas" -lt "$_teto" ]; do
         mandar_lote
         rc=$?
         [ "$rc" = 3 ] && { [ "$voltas" = 0 ] && return 3; return 0; }
@@ -1324,9 +1480,12 @@ pendente_desde=""
 # Quando foi a colheita anterior. É a janela que se reparte quando várias
 # faixas caem numa passada só.
 ultima_colheita=""
-# 1 enquanto o áudio vem do Tidal. Enquanto valer 1, o daemon não roda nada
-# que peça memória: nem a consulta ao Tidal, nem o envio ao Last.fm.
-tid_tocando=0
+# 1 quando esta volta é um momento seguro para usar a rede. Ver olhar_tidal.
+tid_rede_ok=1
+# Os metadados da faixa do Tidal em curso já estão em mãos?
+tid_sabido=0
+# E ela já foi anunciada como "tocando agora"? Uma vez por faixa.
+tid_anunciado=0
 # Consultas seguidas que falharam para a faixa da frente da fila de pendentes.
 tid_falhas=0
 tid_tentar=0
@@ -1601,6 +1760,10 @@ while :; do
 
     pcm_aberto=0
     local_tocando=""
+    # Vale 1 até que a olhar_tidal diga o contrário. Quando não há Tidal em
+    # jogo — arquivo local, ou nada tocando — ela nem roda, e o daemon segue
+    # como sempre foi.
+    tid_rede_ok=1
     if [ "$precisa_estado" = 1 ]; then
         _pcm=""
         { read -r _pcm; read -r local_tocando; } <<FIM_ESTADO
@@ -2016,21 +2179,29 @@ FIM_ESTADO
     # O relógio do envio. Ele conta segundos de verdade, não voltas, porque o
     # intervalo do laço muda conforme você está ouvindo ou não.
     desde_envio=$((desde_envio + intervalo))
-    # Com o Tidal tocando o envio espera. Ele roda o r1send e o curl, e é o
-    # mesmo motivo de sempre: naquele estado o aparelho não tem bloco contíguo
-    # para dar a ninguém, e quem paga é o player, que morre. O relógio continua
-    # correndo, então assim que o som para o envio sai na primeira volta —
-    # nada se acumula sem sair.
+    # O envio espera a janela calma, pela mesma razão do anúncio: ele roda o
+    # r1send e o curl, e o instante da troca de faixa é o único que a medição
+    # apontou como ruim. O relógio continua correndo, então ele sai na primeira
+    # volta em que for seguro — nada se acumula sem sair.
     #
-    # Tocando do cartão isto não vale: lá o player ocupa bem menos e o envio
-    # nunca deu problema. Segurar seria piorar sem motivo.
-    if [ "$tid_tocando" = 1 ]; then
+    # Tocando do cartão isto não vale: lá a olhar_tidal nem roda, tid_rede_ok
+    # fica em 1 e o envio segue como sempre foi.
+    if [ "$tid_rede_ok" != 1 ]; then
         desde_envio=$proximo_envio
     elif [ "$desde_envio" -ge "$proximo_envio" ]; then
         desde_envio=0
         # O relógio do teto recomeça: o que estava pendente foi tratado.
         pendente_desde=""
-        tentar_enviar
+        # Com o Tidal tocando, dois lotes por rodada em vez de vinte. Uma fila
+        # grande sairia como vinte requisições seguidas — cada uma é modesta
+        # sozinha (896 KB de pico, medido), mas emendadas viram atividade
+        # sustentada bem no meio da reprodução. O resto sai na rodada seguinte,
+        # que o adiantar_envio já puxa para perto.
+        if [ -n "$tid_id" ]; then
+            tentar_enviar 2
+        else
+            tentar_enviar
+        fi
         rc=$?
         if [ "$rc" = 0 ]; then
             registrar "enviado ao Last.fm"

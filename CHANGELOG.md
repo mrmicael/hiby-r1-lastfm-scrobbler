@@ -1,5 +1,45 @@
 # Changes since the last release
 
+## Device version 21 — "now playing" is back on Tidal
+
+Version 20 blamed `curl`'s size. That was a guess dressed up as a measurement,
+and measuring it properly showed it was wrong. On the device, with Tidal
+playing, one `curl` in the middle of a track:
+
+| | |
+|---|---|
+| peak resident | **896 KB**, not the 1.6 MB of the file |
+| free memory dip | ~116 KB |
+| largest contiguous block | **order 7 before, during and after** — unmoved |
+
+Five TLS handshakes in a row while Tidal played did not bother the player.
+
+So the size was never the problem. What versions 14–19 did differently was the
+**moment**: they fired at the instant the track changed, which is exactly when
+the player is allocating for the new track. A reproduction that fires at that
+instant is in the test suite; a `curl` in the calm middle of a track is not
+what killed anything.
+
+The rule is therefore about timing, not about the network:
+
+- **Nothing runs in the first 20 seconds of a track.** The track change itself
+  writes text and nothing else.
+- **Never two requests in the same cycle.** A new track's metadata goes out on
+  one loop, its announcement on the next.
+- **At most two batches per send round while Tidal plays**, instead of twenty.
+  Each is modest alone; twenty back to back is sustained activity in the middle
+  of playback.
+
+There is also a **cache of Tidal track data** (`tidal_cache`, capped at 300
+entries). A track only ever needs asking once. A track you have heard before
+now costs no network at all — not to announce, and not to enter the queue.
+
+That last part fixes something version 20 got wrong for you: a track now enters
+the queue **the moment it ends**, because its data is already in hand. Only
+tracks skipped inside the first 20 seconds still wait for silence.
+
+---
+
 ## Device version 20 — the Tidal crash, measured instead of guessed
 
 Versions 18 and 19 both moved `curl` around inside the Tidal path, and neither

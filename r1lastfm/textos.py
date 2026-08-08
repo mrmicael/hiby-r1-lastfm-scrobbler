@@ -1400,6 +1400,41 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.21": {
+        "en": "\"now playing\" is back on Tidal, and version 20 was more "
+              "cautious than it needed to be. Measured on the device: one "
+              "curl in the middle of a track peaks at 896 KB resident, costs "
+              "about 116 KB of free memory and does not move the "
+              "fragmentation at all — the largest contiguous block stays the "
+              "same before, during and after. Five handshakes in a row with "
+              "Tidal playing did not bother the player. What the older "
+              "versions did differently was not the size, it was the moment: "
+              "they fired at the instant the track changed, which is when the "
+              "player is asking for memory for the new one. So the rule is "
+              "now the moment, not the network: nothing runs for the first "
+              "20 seconds of a track, and never two requests in the same "
+              "cycle. There is also a cache of Tidal track data, so a track "
+              "you have heard before costs no network at all — not to "
+              "announce it, and not to put it in the queue. That also means a "
+              "track now enters the queue the moment it ends, instead of "
+              "waiting for silence",
+        "pt": "o \"tocando agora\" voltou no Tidal, e a versao 20 era mais "
+              "cautelosa do que precisava. Medido no aparelho: um curl no "
+              "meio da faixa custa 896 KB de pico residente, derruba a "
+              "memoria livre em uns 116 KB e nao mexe na fragmentacao — o "
+              "maior bloco contiguo fica igual antes, durante e depois. Cinco "
+              "handshakes seguidos com o Tidal tocando nao incomodaram o "
+              "player. O que as versoes anteriores faziam de diferente nao "
+              "era o tamanho: era a HORA. Elas disparavam no instante da "
+              "troca de faixa, que e quando o player esta pedindo memoria "
+              "para a faixa nova. Entao a regra agora e o momento, nao a "
+              "rede: nada acontece nos primeiros 20 segundos de uma faixa, e "
+              "nunca duas requisicoes no mesmo ciclo. E ha um cache dos dados "
+              "das faixas do Tidal, entao uma faixa que voce ja ouviu nao "
+              "custa rede nenhuma — nem para anunciar, nem para entrar na "
+              "fila. Isso tambem faz a faixa entrar na fila assim que acaba, "
+              "em vez de esperar o silencio",
+    },
     "novidade.20": {
         "en": "the Tidal crash, found and fixed. Measured on the device: "
               "while Tidal plays there is about 1.5 MB free and the largest "
