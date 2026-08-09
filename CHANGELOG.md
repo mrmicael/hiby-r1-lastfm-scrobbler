@@ -41,24 +41,50 @@ instant of the announcement. It was never `curl`.
 fields are 256 bytes instead of 512 (still double what Last.fm accepts). Ten
 tracks now cost 21 KB.
 
-### And a resident network helper
+### A resident network helper, built but not wired up
 
-`r1net` is new: it starts at boot, when there are 22 MB free, parses the
-certificate bundle and builds its TLS contexts once, then sits on a fifo with
-the connection to Last.fm held open. Sending a request became writing a line to
-an already-open descriptor — `printf` and redirection are shell builtins, so no
-process is created at all.
+`r1net` ships in this release as a program and a build script, and nothing
+uses it yet. It starts, parses the certificate bundle and builds its TLS
+contexts once, then sits on a fifo with the connection to Last.fm held open, so
+sending a request becomes writing a line to an already-open descriptor — no
+process created at all. Measured on the device: 421 KB of program against
+curl's 1,643,940 bytes, 688 KB resident, and the resident size does not grow
+between requests.
 
-Measured on the device: 421 KB of program (curl is 1,643,940 bytes), 688 KB
-resident, and **the resident size does not grow between requests**.
+It is not connected to the daemon because wiring it in produced three
+regressions in a row on a real device — the announcement firing every 15
+seconds, the announcement never firing again after one transient failure, and
+duplicate entries in the queue. The program is sound; the integration was not
+tested against a full cycle before being installed, and that is the mistake.
+It gets connected when there is a test that exercises track changes, network
+failures and repeats first.
 
-Because of it, `REDE_NO_TIDAL` now defaults to `auto`: the "now playing" on
-Tidal happens when it costs no new process, and not otherwise. The permission
-follows the cost instead of a guess.
+---
 
-The calm-window machinery from version 21 stays in place regardless — nothing
-in the first 20 seconds of a track, nothing at the instant of a change, never
-two requests in one cycle.
+## Device version 24 — the Tidal "now playing" is on again
+
+Version 22 turned it off because the device kept freezing and the reason was
+not yet known. Version 23 found the reason — `r1send` — and removed it. It was
+never this.
+
+So the switch goes back on, with **no new code**: the announcement logic is the
+one from version 21, unchanged, with its seven tests passing. Nothing in the
+first 20 seconds of a track, nothing at the instant of a change, never two
+requests in the same cycle, and a cache so a track you have already heard costs
+no network at all.
+
+One real fix alongside it: **a daemon that started in the middle of a track was
+blind to Tidal until you skipped.** The file it watches — `/usr/data/user.ini`
+— only changes when the track does, so a daemon that appears afterwards never
+sees it. That is not a rare case: it happens every time the device is switched
+on with Tidal resuming where it left off. It now adopts whatever is already
+playing.
+
+**Honest note on the risk.** With Tidal playing the device has about 1.5 MB
+free, and `curl` peaks at about 900 KB. `r1send` no longer competes for that
+space, which is what made the difference, but the margin is not comfortable.
+If it freezes, `REDE_NO_TIDAL=0` at the top of the daemon turns all network off
+during Tidal playback; scrobbles keep working, only the live indicator stops.
 
 ---
 

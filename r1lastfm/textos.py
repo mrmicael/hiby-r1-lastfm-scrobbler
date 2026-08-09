@@ -1400,6 +1400,33 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.24": {
+        "en": "the Tidal \"now playing\" is on again. It was turned off in "
+              "version 22 because the device kept freezing and the reason was "
+              "not yet known; version 23 found the reason and removed it, and "
+              "it was never this. The announcement logic is the one from "
+              "version 21, unchanged and with its tests passing: nothing in "
+              "the first 20 seconds of a track, nothing at the instant of a "
+              "change, never two requests in the same cycle, and a cache so a "
+              "track you have heard before costs no network at all. Also "
+              "fixed: a daemon that started in the middle of a track was "
+              "blind to Tidal until you skipped, because the file it watches "
+              "only changes when the track does. It now adopts whatever is "
+              "already playing — which is what happens every time the device "
+              "is switched on with Tidal resuming",
+        "pt": "o \"tocando agora\" do Tidal esta ligado de novo. Ele foi "
+              "desligado na versao 22 porque o aparelho travava e o motivo "
+              "ainda nao era conhecido; a versao 23 achou o motivo e o tirou, "
+              "e nunca foi isto. A logica do anuncio e a da versao 21, sem "
+              "mudanca e com os testes dela passando: nada nos primeiros 20 "
+              "segundos de uma faixa, nada no instante da troca, nunca duas "
+              "requisicoes no mesmo ciclo, e um cache para que uma faixa ja "
+              "ouvida nao custe rede nenhuma. Tambem corrigido: um daemon que "
+              "subia no meio de uma faixa ficava cego ao Tidal ate voce "
+              "pular, porque o arquivo que ele vigia so muda na troca. Agora "
+              "ele adota o que ja esta tocando — que e o que acontece toda "
+              "vez que o aparelho e ligado com o Tidal retomando",
+    },
     "novidade.23": {
         "en": "the crash is found, and it was ours. The kernel log of a real "
               "freeze says it plainly: the player did not run out of "
@@ -1414,10 +1441,8 @@ TEXTOS: dict[str, dict[str, str]] = {
               "the \"freeze\". And since announcing a track runs r1send "
               "first, that is why it froze at the exact moment of the "
               "announcement. The queue now grows as it fills: ten tracks cost "
-              "21 KB. There is also a new resident network helper (r1net) "
-              "that keeps one TLS connection open, so going to the network no "
-              "longer creates a process at all: 421 KB of program against "
-              "curl's 1.6 MB, and requests after the first cost nothing",
+              "21 KB, and the 495-track queue of a device in real use costs "
+              "565 KB instead of 8.4 MB",
         "pt": "o travamento foi achado, e era nosso. O log do kernel de um "
               "travamento de verdade diz sem rodeio: o player nao ficou sem "
               "bloco contiguo, ele foi MORTO pelo matador de falta de "
@@ -1431,11 +1456,9 @@ TEXTOS: dict[str, dict[str, str]] = {
               "supervisor do firmware reinicia o aparelho — o \"travamento\". "
               "E como anunciar uma faixa roda o r1send antes, e por isso que "
               "travava no instante exato do anuncio. Agora a fila cresce "
-              "conforme enche: dez faixas custam 21 KB. Tambem entrou um "
-              "ajudante de rede residente (o r1net), que mantem uma conexao "
-              "TLS aberta, entao ir a rede deixou de criar processo: 421 KB "
-              "de programa contra 1,6 MB do curl, e os pedidos depois do "
-              "primeiro nao custam nada",
+              "conforme enche: dez faixas custam 21 KB, e a fila de 495 "
+              "faixas de um aparelho em uso real custa 565 KB em vez de "
+              "8,4 MB",
     },
     "novidade.22": {
         "en": "the Tidal \"now playing\" is off by default again, because it "
