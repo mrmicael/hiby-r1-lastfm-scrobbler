@@ -1400,6 +1400,35 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.28": {
+        "en": "two fixes found by measuring instead of assuming. The first: "
+              "version 26 shortened the calm window from 20 seconds to 6 and "
+              "claimed the announcement would be faster. It was not — the "
+              "check that asks for an earlier wake-up sat ABOVE the code that "
+              "raises the flag, so the hurry was only noticed on the next "
+              "loop, fifteen seconds later, which is exactly what it existed "
+              "to avoid. Measured on the device: 26 seconds, twice, with no "
+              "variation at all — and it was that lack of variation that gave "
+              "it away, because the real delay has a random part. The second: "
+              "when Tidal answers 404 for a track — its catalogue genuinely "
+              "does not know that id, in tracks, videos, albums or episodes — "
+              "the daemon kept asking twice a minute, forever, for a name "
+              "that would never come. It now writes one line and moves on",
+        "pt": "dois consertos achados medindo, e nao supondo. O primeiro: a "
+              "versao 26 encurtou a janela calma de 20 para 6 segundos e "
+              "prometeu um anuncio mais rapido. Nao era — a verificacao que "
+              "pede a volta antecipada ficava ACIMA do codigo que levanta a "
+              "bandeira, entao a pressa so era vista na volta seguinte, "
+              "quinze segundos depois, que e exatamente o que ela existia "
+              "para evitar. Medido no aparelho: 26 segundos, duas vezes, sem "
+              "variacao nenhuma — e foi essa ausencia de variacao que "
+              "denunciou, porque o atraso de verdade tem uma parte aleatoria. "
+              "O segundo: quando o Tidal responde 404 para uma faixa — o "
+              "catalogo dele realmente nao conhece aquele id, nem em tracks, "
+              "nem em videos, albums ou episodes —, o daemon continuava "
+              "perguntando duas vezes por minuto, para sempre, por um nome "
+              "que nunca viria. Agora escreve uma linha e segue",
+    },
     "novidade.27": {
         "en": "the queue trims itself. It only ever grew, and that cost "
               "nothing while r1send reserved a fixed 8.7 MB — its size "

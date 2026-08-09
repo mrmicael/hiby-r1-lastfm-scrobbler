@@ -1,5 +1,36 @@
 # Changes since the last release
 
+## Device version 28 — two things measurement caught that reasoning missed
+
+**The earlier wake-up was in the wrong place.** Version 26 shortened the calm
+window from 20 seconds to 6 and said the announcement would arrive sooner. It
+did not. The check that asks for an earlier wake-up sat *above* the call that
+raises the flag, so `olhar_tidal` set it after the interval for that iteration
+had already been decided — the hurry was noticed on the *next* loop, fifteen
+seconds later, which is exactly what it existed to prevent.
+
+What gave it away was not the size of the number but its **stillness**: 26
+seconds, twice, with no variation. The real delay has a random component —
+detecting a track change takes anywhere from 0 to 15 seconds depending on
+where the tick falls. A measurement that does not vary means the part you
+think is acting is not acting.
+
+**A 404 from Tidal is now final.** When the catalogue does not know a track id
+— confirmed against `tracks`, `videos`, `albums` and `episodes`, all 404, with
+a known-good id returning full metadata on the same connection — the daemon
+used to keep asking twice a minute, forever, for a name that would never come.
+It now logs one line and moves on, and tries again normally on the next track.
+
+```json
+{"status":404,"subStatus":2001,"userMessage":"Track [522653189] not found"}
+```
+
+This is not something the scrobbler can fix: without an artist and a title
+there is nothing to announce and nothing to scrobble. What it can do is stop
+spending requests on it and say so in the log.
+
+---
+
 ## Device version 27 — the queue trims itself
 
 The queue only ever grew. That cost nothing while `r1send` reserved a fixed

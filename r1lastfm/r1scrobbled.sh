@@ -1592,6 +1592,18 @@ olhar_tidal() {
         tid_anunciado=0
         tid_tent_anuncio=0
         tid_reanuncio=0
+        tid_perdida=0
+        # Pede que a PRÓXIMA volta aconteça em CALMA segundos, e não nos 15
+        # de sempre.
+        #
+        # Sem isto a janela calma não vale nada: ela é de 6 segundos, mas o
+        # laço só acorda de 15 em 15, então o anúncio cai sempre no tique
+        # seguinte e os 6 viram 15. Medido no aparelho: 37 segundos da troca
+        # até o aviso, dos quais só 4 são trabalho — o resto é espera.
+        #
+        # Não é polling a mais: é UMA volta adiantada por troca de faixa. Em
+        # regime parado nada muda.
+        tid_apressar=1
         return 0
     fi
 
@@ -1629,6 +1641,9 @@ olhar_tidal() {
     # anúncio fica para a volta seguinte, para nunca haver dois curl no mesmo
     # ciclo.
     if [ "$tid_sabido" != 1 ]; then
+        # O catálogo já disse que não conhece esta faixa. Perguntar de novo dá
+        # a mesma resposta — ver o 404 mais abaixo.
+        [ "$tid_perdida" = 1 ] && return 0
         [ "$t_agora" -lt "$tid_tentar" ] 2>/dev/null && return 0
         tem_memoria || return 0
         if tidal_meta "$tid_id"; then
@@ -1642,6 +1657,21 @@ olhar_tidal() {
             # Sem o ajudante isso seriam dois curl seguidos, que é exatamente
             # o que derrubava o aparelho: aí a separação continua valendo.
             [ "$rede_pronta" = 1 ] || return 0
+        elif [ "$http_codigo" = 404 ]; then
+            # O catálogo do Tidal não conhece este id.
+            #
+            # Visto num R1 de verdade: quatro faixas seguidas devolvendo
+            # `{"status":404,"subStatus":2001,"userMessage":"Track [...] not
+            # found"}`, e o mesmo 404 em /v1/videos, /v1/albums e
+            # /v1/episodes. Não é rede, não é token, não é o país — o id
+            # simplesmente não existe lá.
+            #
+            # Insistir não muda a resposta, e sem esta saída o daemon repetia
+            # duas requisições por minuto, para sempre, por uma faixa que
+            # nunca teria nome. Fica registrado uma vez e segue a vida.
+            registrar "tidal: o catalogo nao conhece a faixa $tid_id (404); sem dados para anunciar"
+            tid_perdida=1
+            return 0
         else
             tid_pais=""
             tid_tentar=$((t_agora + 60))
@@ -1847,6 +1877,10 @@ tid_tentar=0
 # Tentativas do "tocando agora" da faixa em curso, e quando repetir.
 tid_tent_anuncio=0
 tid_reanuncio=0
+# 1 quando a faixa acabou de trocar e a próxima volta deve vir mais cedo.
+tid_apressar=0
+# 1 quando o catálogo do Tidal respondeu 404 para a faixa em curso.
+tid_perdida=0
 if [ "$agora" -lt "$PISO" ]; then
     printf 'c1\t%s\n' "$agora" >> "$FILA"
     registrar "relogio em $agora, anterior ao piso $PISO: horas suspeitas"
@@ -2539,6 +2573,24 @@ FIM_ESTADO
 
     olhar_tocando
     olhar_tidal
+
+    # A faixa do Tidal acabou de trocar: a próxima volta vem em CALMA
+    # segundos, e não nos 15 de sempre.
+    #
+    # É o que faz a janela calma significar alguma coisa. Ela é de 6 segundos,
+    # mas o laço acorda de 15 em 15 — sem isto o anúncio esperaria o tique
+    # seguinte de qualquer jeito, e os 6 virariam 15. Uma volta adiantada por
+    # troca de faixa, e nada mais: em regime parado nada muda.
+    #
+    # E fica AQUI, depois da olhar_tidal, porque é ela quem levanta a bandeira.
+    # Na primeira tentativa esta verificação estava lá em cima, antes da
+    # chamada — então a pressa só era vista na volta SEGUINTE, quinze segundos
+    # depois, que é exatamente o que ela existe para evitar. Medido no
+    # aparelho: 26 segundos, duas vezes, sem variação nenhuma.
+    if [ "$tid_apressar" = 1 ]; then
+        tid_apressar=0
+        intervalo=$CALMA
+    fi
 
     # O WiFi acabou de aparecer? Então não espera o relógio: manda agora.
     #
