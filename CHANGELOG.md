@@ -87,9 +87,14 @@ so every page is resident immediately. A queue of ten tracks cost the same
 8.4 MB as a queue of four thousand. On a device with under 2 MB free while
 music plays, that is the whole story.
 
-It also explains the symptom that made no sense: `anunciar_tidal` runs
-`r1send` *before* it touches the network, which is why it froze at the exact
-instant of the announcement. It was never `curl`.
+**Correction to an earlier version of this entry.** It said the freeze landed
+on the announcement because `anunciar_tidal` runs `r1send` first. That is
+wrong: `cmd_agora` allocates 400 small structs and never loads the queue. The
+8.4 MB comes only from the three commands that read the whole queue —
+`preparar`, `listar` and `relatorio` — that is, the batch send and the card's
+spreadsheet. The announcement looked guilty because a send follows it closely:
+queueing a track pulls the next send in to within 45 seconds. It was never
+`curl`, and it was never the announcement either.
 
 **The fix:** the queue grows as it fills, starting at 32 entries, and the text
 fields are 256 bytes instead of 512 (still double what Last.fm accepts). Ten
