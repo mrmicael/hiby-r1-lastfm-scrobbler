@@ -1,5 +1,72 @@
 # Changes since the last release
 
+## Device version 27 — the queue trims itself
+
+The queue only ever grew. That cost nothing while `r1send` reserved a fixed
+8.7 MB — its size changed nothing at all. But once `r1send` started growing
+with the queue, **the queue's size became the cost**, and nobody prunes it:
+
+| tracks in the queue | `r1send` peak |
+|---|---|
+| 548 (a real device) | 1212 KB |
+| ~2,000 | ~2.3 MB |
+| 4,096 (the cap) | ~4.5 MB |
+
+At fifty tracks a day that is two months to a peak that matters again on a
+device with 1.7 MB free. The freeze would have come back slowly, with nothing
+to connect it to — and it would have been this change's fault.
+
+So the daemon drops what Last.fm has already accepted. Only when the audio is
+stopped and the daemon has gone quiet, at most once every six hours, and only
+past 400 lines. Everything up to the last step is a shell builtin: **in normal
+running it creates no process at all.**
+
+On the device: **548 tracks → 193, and `r1send`'s peak from 1212 KB to
+396 KB.**
+
+Nothing waiting to be sent is ever touched. The rewrite is kept only if the
+result is non-empty and smaller than the original — a lost queue is lost
+listening, and that does not come back from anywhere. The test checks both
+directions: that everything accepted left, and that nothing unsent did.
+
+### What was deliberately not done
+
+The send path could also skip already-sent entries while parsing, which would
+save memory. It is not done, for a specific reason: the parser uses the
+**next** entry to bound how much of the current one was heard. Dropping sent
+entries changes that neighbour, and with it the inferred listening time —
+silently altering scrobble decisions. With automatic pruning the queue holds
+almost nothing but unsent tracks anyway, so the saving would be near zero and
+the risk real.
+
+---
+
+## Device version 26 — the Tidal "now playing" in 25 seconds instead of 50
+
+Two of the three waits existed only because announcing meant creating a 1.6 MB
+`curl`, opening a socket and negotiating TLS right at the track change. With
+the resident helper none of that happens:
+
+- the calm window went from 20 seconds to 6 — what is born in that window now
+  is a 120 KB `r1send` that builds the body and never touches the network;
+- the metadata lookup and the announcement go out on the **same loop**, rather
+  than one after the other. Without the helper they stay separate, because
+  there they would be two `curl`s in a row.
+
+Measured on the device: **25 seconds** from track change to announcement.
+
+An earlier draft of this entry predicted 15 seconds. That was wrong, and the
+reason is worth writing down: once the calm window passes, the announcement
+still waits for the **next tick of the loop**, which is 15 seconds. So the
+real arithmetic is `detect (0–15s) + next tick (15s)`. It also means lowering
+the calm window further buys nothing — the loop's pace is now what binds.
+
+The loop was left alone on purpose. Speeding it up is the one change that
+would trade latency for more processes during playback, which is exactly what
+this whole line of work removed.
+
+---
+
 ## Device version 25 — the network stops creating things mid-playback
 
 The resident helper is connected. `r1net` starts with the daemon, while the

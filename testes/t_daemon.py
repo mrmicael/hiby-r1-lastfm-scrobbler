@@ -1821,9 +1821,12 @@ busybox ash {T}/{pasta}/rs &
 PID=$!
 
 # --- o roteiro -------------------------------------------------------------
-# 101 toca inteira (dur 40) e ainda REPETE: 45s no mesmo id = 1 execucao
-# fechada pela repeticao + o resto.
-sleep 45
+# 101 toca 70s com duracao 40: a repeticao fecha uma execucao aos 40s e a
+# troca fecha os 30s restantes. Sao 70 e nao 45 de proposito — com 45 a
+# margem para o gatilho da repeticao era de cinco segundos, e o ajudante
+# detecta a faixa um ciclo antes do curl. O resultado passava a depender de
+# qual dos dois chegava primeiro, e um teste assim sorteia em vez de medir.
+sleep 70
 # 102 entra e e pulada logo. Tres segundos, e nao oito: com CALMA=4 neste
 # teste, uma faixa de oito segundos fica EM CIMA da fronteira — dependendo de
 # onde o tique do laco cai, os metadados chegam antes da troca ou nao, e a
@@ -1831,9 +1834,9 @@ sleep 45
 # diferenca entre curl e ajudante por causa do proprio roteiro.
 echo 102 > {T}/{pasta}/ctrltid
 sleep 3
-# 103 entra e toca inteira.
+# 103 entra e toca inteira, com a mesma margem larga da 101.
 echo 103 > {T}/{pasta}/ctrltid
-sleep 45
+sleep 70
 # o audio PARA: e aqui que os pendentes, se houver, sao resolvidos.
 printf 'pcm=0\\n\\n' > {T}/{pasta}/ctrl
 sleep 20
@@ -1923,6 +1926,113 @@ else:
           _num(_res_aj.stdout, "CURLS") == 0,
           f"{_num(_res_aj.stdout, 'CURLS')} chamadas ao curl com o ajudante "
           f"de pe — a rede ainda esta nascendo processo")
+
+
+print()
+print("=" * 74)
+print("16. a fila e podada sozinha, e so o que ja subiu sai")
+print("=" * 74)
+# A fila so crescia. Isso nao incomodava enquanto o r1send reservava 8,7 MB
+# fixos — o tamanho dela nao mudava nada. Depois que ele passou a crescer sob
+# demanda, o tamanho da fila VIROU o custo, e uma fila que nunca e podada traz
+# o travamento de volta devagar, sem ninguem ligar uma coisa a outra.
+#
+# O que este teste protege nao e o ganho de memoria: e a fila. Podar de menos
+# custa memoria; podar DEMAIS custa escuta, que nao se recupera de lugar
+# nenhum. Entao a cobranca e nos dois sentidos.
+script23 = f"""
+pkill -f "{T}/poda/rs" 2>/dev/null || true
+sleep 1
+rm -rf {T}/poda; mkdir -p {T}/poda/scrobble {T}/poda/tmp
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/poda/scrobble/r1collect
+chmod 755 {T}/poda/scrobble/r1collect
+cp {r.to_posix_path(WORK)}/sim1.db {T}/poda/banco.db
+
+# Uma fila grande: 500 faixas, das quais 300 ja foram aceitas pelo Last.fm.
+# Cada uma leva o t1 dela, que tem de sair junto.
+i=1
+while [ $i -le 500 ]; do
+    printf 'p1\\t%s\\t%s\\tArtista\\tFaixa %s\\tAlbum\\t\\t200\\t2024\\ta.flac\\t\\n' \\
+        "$i" "$((1786200000 + i * 300))" "$i" >> {T}/poda/scrobble/fila.tsv
+    printf 't1\\t%s\\t195\\t2\\tfim\\n' "$i" >> {T}/poda/scrobble/fila.tsv
+    [ $i -le 300 ] && echo "$i" >> {T}/poda/scrobble/enviados
+    i=$((i + 1))
+done
+# Um marcador de sessao no meio, que NAO pode sumir na poda.
+echo "b1	1786200000" >> {T}/poda/scrobble/fila.tsv
+
+echo "=== ANTES ==="
+echo "LINHAS=$(wc -l < {T}/poda/scrobble/fila.tsv)"
+echo "P1=$(grep -c '^p1' {T}/poda/scrobble/fila.tsv)"
+
+sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/poda/scrobble#' \\
+    -e 's#^DB=.*#DB={T}/poda/banco.db#' \\
+    -e 's#^DB_INTERNO=.*#DB_INTERNO={T}/poda/banco.db#' \\
+    -e 's#^MAIS=.*#MAIS={T}/poda/nada.db#' \\
+    -e 's#^CARTOES=.*#CARTOES="{T}/poda/sd"#' \\
+    -e 's#^COPIA=.*#COPIA={T}/poda/tmp/c.db#' \\
+    -e 's#^PARCIAL=.*#PARCIAL={T}/poda/tmp/p.tsv#' \\
+    -e 's#^LOG=.*#LOG={T}/poda/tmp/log#' \\
+    -e 's#^TICK=.*#TICK={T}/poda/tmp/tick#' \\
+    -e 's#^TRAVA=.*#TRAVA={T}/poda/tmp/rodando#' \\
+    -e 's#^AJUDANTE=.*#AJUDANTE={T}/poda/nao-existe#' \\
+    -e 's#^RAPIDO=15#RAPIDO=1#' -e 's#^LENTO=60#LENTO=1#' \\
+    -e 's#^QUIETOS=8#QUIETOS=2#' -e 's#^ASSENTAR=5#ASSENTAR=1#' \\
+    {p} > {T}/poda/rs
+chmod 755 {T}/poda/rs
+
+busybox ash {T}/poda/rs &
+PID=$!
+sleep 14
+kill -TERM $PID 2>/dev/null
+sleep 2
+
+echo "=== DEPOIS ==="
+echo "LINHAS=$(wc -l < {T}/poda/scrobble/fila.tsv)"
+echo "P1=$(grep -c '^p1' {T}/poda/scrobble/fila.tsv)"
+echo "T1=$(grep -c '^t1' {T}/poda/scrobble/fila.tsv)"
+echo "MARCADOR=$(grep -c '^b1' {T}/poda/scrobble/fila.tsv)"
+echo "=== ALGUMA ENVIADA SOBROU? (tem de ser 0) ==="
+echo "SOBROU=$(awk -F'\\t' 'NR==FNR{{m[$1]=1;next}} $1=="p1" && ($2 in m)' \\
+    {T}/poda/scrobble/enviados {T}/poda/scrobble/fila.tsv | wc -l)"
+echo "=== ALGUMA NAO-ENVIADA SUMIU? (tem de ser 0) ==="
+echo "PERDIDA=$(awk -F'\\t' 'BEGIN{{for(i=301;i<=500;i++) f[i]=1}}
+    $1=="p1"{{delete f[$2]}} END{{n=0; for(k in f) n++; print n}}' \\
+    {T}/poda/scrobble/fila.tsv)"
+echo "=== O LOG DIZ? ==="
+grep 'fila podada' {T}/poda/tmp/log 2>/dev/null || echo "(nao registrou)"
+"""
+res23 = r.posix_script(script23, name="daemon-poda", mutating=False,
+                       quiet=True, timeout=120)
+print("\n".join("   " + l for l in res23.stdout.splitlines()[:16]))
+
+_p_antes = res23.stdout.split("=== ANTES ===")[1] if "=== ANTES ===" in res23.stdout else ""
+_p1_antes = _num(_p_antes, "P1")
+_p_depois = res23.stdout.split("=== DEPOIS ===")[1] if "=== DEPOIS ===" in res23.stdout else ""
+_p1_depois = _num(_p_depois, "P1")
+_t1_depois = _num(_p_depois, "T1")
+
+check("a fila encolheu sozinha, sem ninguem pedir",
+      0 < _p1_depois < _p1_antes,
+      f"{_p1_antes} -> {_p1_depois} faixas — sem poda automatica a fila cresce "
+      f"para sempre e o r1send cresce junto")
+check("saiu exatamente o que o Last.fm ja aceitou",
+      _num(res23.stdout, "SOBROU") == 0,
+      f"{_num(res23.stdout, 'SOBROU')} faixas ja enviadas continuam ocupando "
+      f"lugar")
+check("e NENHUMA faixa por enviar se perdeu",
+      _num(res23.stdout, "PERDIDA") == 0,
+      f"{_num(res23.stdout, 'PERDIDA')} faixas sumiram sem terem subido — "
+      f"isso e escuta perdida, e nao se recupera de lugar nenhum")
+check("as medicoes das faixas removidas sairam junto",
+      _t1_depois == _p1_depois,
+      f"{_t1_depois} marcadores t1 para {_p1_depois} faixas — um t1 orfao nao "
+      f"quer dizer nada e faria a fila crescer na propria poda")
+check("e os marcadores de sessao ficaram",
+      _num(_p_depois, "MARCADOR") >= 1,
+      "o b1 sumiu; ele nao tem rowid e a poda nao devia toca-lo")
+# Sao dois, e nao um: o que o roteiro pos, mais o que o proprio daemon escreve
+# ao subir. O que importa e que a poda nao come marcador de sessao.
 
 
 print()

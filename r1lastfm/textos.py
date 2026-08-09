@@ -1400,6 +1400,63 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.27": {
+        "en": "the queue trims itself. It only ever grew, and that cost "
+              "nothing while r1send reserved a fixed 8.7 MB — its size "
+              "changed nothing. Once r1send started growing with the queue, "
+              "the queue's size became the cost, and a queue nobody prunes "
+              "brings the freeze back slowly, with nothing to connect it to. "
+              "So the daemon now drops what Last.fm has already accepted: "
+              "only when the audio is stopped, at most once every six hours, "
+              "and only past 400 lines — in normal running it creates no "
+              "process at all. On a real device it went from 548 tracks to "
+              "193, and r1send's peak from 1212 KB to 396 KB. Nothing that "
+              "has yet to be sent is ever touched: the rewrite is only kept "
+              "if the result is non-empty and smaller than the original, "
+              "because a lost queue is lost listening and that does not come "
+              "back from anywhere",
+        "pt": "a fila se poda sozinha. Ela so crescia, e isso nao custava "
+              "nada enquanto o r1send reservava 8,7 MB fixos — o tamanho dela "
+              "nao mudava coisa alguma. Quando o r1send passou a crescer "
+              "junto com a fila, o tamanho dela virou o custo, e uma fila que "
+              "ninguem poda traz o travamento de volta devagar, sem nada que "
+              "ligue uma coisa a outra. Entao o daemon passou a tirar o que o "
+              "Last.fm ja aceitou: so com o audio parado, no maximo de seis "
+              "em seis horas, e so passando de 400 linhas — em regime normal "
+              "ele nao cria processo nenhum. Num aparelho de verdade foram de "
+              "548 faixas para 193, e o pico do r1send de 1212 KB para "
+              "396 KB. No que ainda nao subiu ninguem encosta: a troca do "
+              "arquivo so acontece se o resultado for nao-vazio e menor que o "
+              "original, porque fila perdida e escuta perdida e isso nao "
+              "volta de lugar nenhum",
+    },
+    "novidade.26": {
+        "en": "the Tidal \"now playing\" shows up in about 25 seconds instead "
+              "of nearly a minute. Two of the waits existed only because "
+              "announcing meant creating a 1.6 MB curl, opening a socket and "
+              "negotiating TLS right at the track change. With the resident "
+              "helper none of that happens, so the calm window dropped from "
+              "20 seconds to 6, and the metadata lookup and the announcement "
+              "now go out on the same loop instead of one after the other. "
+              "Without the helper they stay separate, because there they "
+              "would be two curls in a row — which is what used to bring the "
+              "device down. The loop's own pace was left alone: speeding it "
+              "up is the one change that would trade latency for more "
+              "processes during playback, which is exactly what all this work "
+              "removed",
+        "pt": "o \"tocando agora\" do Tidal aparece em uns 25 segundos, em vez "
+              "de quase um minuto. Duas das esperas existiam so porque "
+              "anunciar significava criar um curl de 1,6 MB, abrir socket e "
+              "negociar TLS bem no instante da troca de faixa. Com o ajudante "
+              "residente nada disso acontece, entao a janela calma caiu de 20 "
+              "segundos para 6, e a consulta dos dados e o anuncio passaram a "
+              "sair na mesma volta do laco em vez de uma depois da outra. Sem "
+              "o ajudante elas continuam separadas, porque ali seriam dois "
+              "curl seguidos, que e o que derrubava o aparelho. O ritmo do "
+              "laco em si ficou como estava: acelera-lo e a unica mudanca que "
+              "trocaria latencia por mais processos durante a reproducao, que "
+              "e exatamente o que este trabalho todo tirou",
+    },
     "novidade.25": {
         "en": "going to the network no longer creates anything while music "
               "plays. The resident helper (r1net) is now connected: it starts "

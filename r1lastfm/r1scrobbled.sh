@@ -990,6 +990,58 @@ http_pedir() {
 
 # Uma ida ao Last.fm com o lote: pelo ajudante quando ele está de pé, e pelo
 # curl quando não está.
+# ---------------------------------------------------------------------------
+# A poda da fila.
+#
+# A fila só crescia, e isso não incomodava ninguém enquanto o r1send reservava
+# 8,7 MB fixos: o tamanho dela não mudava nada. Quando ele passou a crescer sob
+# demanda, o tamanho da fila VIROU o custo — 541 faixas custam 1,2 MB, e quem
+# ouve cinquenta por dia chega ao teto de 4096 em uns dois meses. O travamento
+# voltaria devagar, sozinho, sem ninguém ligar uma coisa à outra.
+#
+# Tirar o que o Last.fm já aceitou não perde nada: aquelas linhas não sobem de
+# novo, e o que elas alimentavam é a planilha do cartão, que é histórico
+# gravado lá e não depende da fila continuar inchando.
+#
+# Custo: em regime normal, ZERO processos. Tudo até a penúltima linha é teste
+# interno do shell, e a passada do awk só acontece quando o relógio permite, a
+# fila passou do tamanho, e o áudio está parado.
+PODA_MIN=400
+PODA_INTERVALO=21600     # seis horas
+
+podar_fila() {
+    [ -s "$ENVIADOS" ] || return 0
+    [ -s "$FILA" ] || return 0
+    [ $((agora - poda_em)) -ge "$PODA_INTERVALO" ] 2>/dev/null || return 0
+    poda_em=$agora
+
+    _pn=$(wc -l < "$FILA" 2>/dev/null)
+    case "$_pn" in ''|*[!0-9]*) return 0 ;; esac
+    [ "$_pn" -ge "$PODA_MIN" ] || return 0
+
+    # A primeira passada lê os rowids aceitos; a segunda mantém tudo o que não
+    # for p1/t1 daqueles rowids. O t1 sai junto com o p1 do mesmo rowid: ele
+    # carrega o tempo medido daquela faixa e nada mais, e deixá-lo para trás
+    # faria a fila crescer na própria poda.
+    awk -F'\t' 'NR==FNR{m[$1]=1;next} ($1!="p1" && $1!="t1") || !($2 in m)' \
+        "$ENVIADOS" "$FILA" > "$FILA.novo" 2>>"$LOG" || {
+        rm -f "$FILA.novo"
+        return 0
+    }
+
+    # Só troca se o resultado faz sentido: não vazio, e não maior que o
+    # original. Uma fila perdida é escuta perdida, e isso não se recupera de
+    # lugar nenhum — na dúvida, fica como estava.
+    _pm=$(wc -l < "$FILA.novo" 2>/dev/null)
+    case "$_pm" in ''|*[!0-9]*) rm -f "$FILA.novo"; return 0 ;; esac
+    if [ "$_pm" -gt 0 ] && [ "$_pm" -le "$_pn" ]; then
+        mv "$FILA.novo" "$FILA"
+        registrar "fila podada: $_pn -> $_pm linhas (o que o Last.fm ja aceitou)"
+    else
+        rm -f "$FILA.novo"
+    fi
+}
+
 chamar_curl() {
     http_pedir POST "$API_HOST" "${ip_api:--}" "$API_CAMINHO" \
                "$CORPO" "$RESP" -
@@ -1774,6 +1826,10 @@ ultimo_olhar=$agora
 parado_desde=""
 # Quando a planilha do cartão foi reescrita pela última vez. Ver atualizar_csv.
 csv_em=""
+# Quando a fila foi podada pela última vez. Nasce em zero de propósito: assim
+# a primeira parada depois de ligar já enxuga o que ficou para trás, em vez de
+# esperar seis horas de aparelho ligado.
+poda_em=0
 # Desde quando há faixa fechada esperando envio. Ver o teto em adiantar_envio.
 pendente_desde=""
 # Quando foi a colheita anterior. É a janela que se reparte quando várias
@@ -2390,6 +2446,11 @@ FIM_ESTADO
                 ativo=0
             fi
             intervalo=$LENTO
+            # Nada acontecendo há um bom tempo: é a hora certa de podar a
+            # fila. Aqui não há áudio para atrapalhar, e a função sai por
+            # conta própria quando não é o caso — em regime normal ela não
+            # cria processo nenhum.
+            podar_fila
         fi
     fi
 
