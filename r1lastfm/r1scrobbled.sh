@@ -1309,8 +1309,17 @@ PEND_TIDAL=$DIR/tidal_pend
 #
 # O que a v14–v19 faziam de diferente não era o tamanho: era a HORA. Elas
 # disparavam no instante da troca, que é quando o player está pedindo memória
-# para a faixa nova. Vinte segundos depois disso a alocação dele já aconteceu.
-CALMA=20
+# para a faixa nova.
+#
+# Eram vinte segundos enquanto o anúncio significava criar um curl de 1,6 MB,
+# abrir socket e negociar TLS bem ali. Com o ajudante residente isso deixou de
+# existir: o que nasce na janela é um r1send de 120 KB, que monta o corpo e
+# não fala com a rede. A rajada de alocação do player numa troca de faixa se
+# resolve em bem menos que seis segundos, e o que sobra para esperar é isso.
+#
+# O ganho é direto para quem usa: o "tocando agora" aparece no perfil em uns
+# quinze segundos em vez de quase um minuto.
+CALMA=6
 
 # Metadados de faixas do Tidal já consultadas: id, artista, título, álbum e
 # duração, um por linha.
@@ -1573,11 +1582,19 @@ olhar_tidal() {
         if tidal_meta "$tid_id"; then
             tid_sabido=1
             tid_falhas=0
+            # Com o ajudante de pé, a consulta que acabou de acontecer não
+            # criou processo nem abriu conexão — foi uma escrita num descritor
+            # que já existia. Então o anúncio pode sair NESTA MESMA volta, e o
+            # "tocando agora" deixa de esperar mais um ciclo do laço.
+            #
+            # Sem o ajudante isso seriam dois curl seguidos, que é exatamente
+            # o que derrubava o aparelho: aí a separação continua valendo.
+            [ "$rede_pronta" = 1 ] || return 0
         else
             tid_pais=""
             tid_tentar=$((t_agora + 60))
+            return 0
         fi
-        return 0
     fi
 
     # O "tocando agora": uma ida à rede, longe da troca, uma só por faixa.

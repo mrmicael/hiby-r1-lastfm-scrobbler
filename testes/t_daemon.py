@@ -1824,9 +1824,13 @@ PID=$!
 # 101 toca inteira (dur 40) e ainda REPETE: 45s no mesmo id = 1 execucao
 # fechada pela repeticao + o resto.
 sleep 45
-# 102 entra e e pulada logo (menos de 25s: nao deve gerar linha nenhuma).
+# 102 entra e e pulada logo. Tres segundos, e nao oito: com CALMA=4 neste
+# teste, uma faixa de oito segundos fica EM CIMA da fronteira — dependendo de
+# onde o tique do laco cai, os metadados chegam antes da troca ou nao, e a
+# faixa entra na fila num caminho e no outro nao. O teste passava a acusar
+# diferenca entre curl e ajudante por causa do proprio roteiro.
 echo 102 > {T}/{pasta}/ctrltid
-sleep 8
+sleep 3
 # 103 entra e toca inteira.
 echo 103 > {T}/{pasta}/ctrltid
 sleep 45
