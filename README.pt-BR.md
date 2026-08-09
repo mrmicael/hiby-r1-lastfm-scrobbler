@@ -66,7 +66,9 @@ a qualquer momento no canto inferior direito da janela.
 | **Tempo ouvido honesto** | Os segundos são **medidos** — áudio realmente saindo do aparelho —, e não deduzidos do espaço entre duas linhas do histórico. Pausar suspende a contagem em vez de encerrar a faixa; uma faixa que você pulou aos 0:19 é anotada como 19 segundos e não vai. E para contar, a faixa precisa ter tocado quase até o fim: 90% dela, mais rígido que a metade com que o Last.fm se contenta. |
 | **Rápido** | O scrobble aparece uns poucos segundos depois de a faixa acabar, e não num relógio de doze minutos. |
 | **Registro e planilha no cartão** | `<cartao>/r1lastfm/scrobbles.csv` e `r1lastfm.log`. Tire o cartão, abra o CSV numa planilha — sem ADB, sem este programa, sem nada. |
-| **Barato** | 1 ms de processador por ciclo, **zero processos filhos** parado, 880 kB de RAM. Medido no aparelho. |
+| **Não cria nada enquanto a música toca** | Ir à rede significava criar um `curl` de 1,6 MB, abrir socket e negociar TLS — num aparelho com 1,5 MB livres. Um ajudante residente mantém uma conexão TLS aberta, então um pedido virou uma escrita num descritor que já existe: **zero processos**. |
+| **Cuida da própria casa** | A fila descarta sozinha o que o Last.fm já aceitou, com o áudio parado. Sem isso ela crescia para sempre, e a memória para lê-la crescia junto. |
+| **Barato** | 1 ms de processador por ciclo, **zero processos filhos** parado. Medido no aparelho, não estimado. |
 | **Seu** | Sua própria chave de API do Last.fm, guardada só no seu computador. Sem conta, sem servidor, sem telemetria, nada liga para casa. |
 
 ### Em detalhe
@@ -122,9 +124,17 @@ Medido no aparelho, não estimado:
 |---|---|
 | coletor parado | 1 ms de processador por minuto — 0,0017% do tempo, **zero processos filhos** |
 | coletor tocando | uma volta a cada 15 s, mesmo 1 ms por volta |
-| memória | 880 kB de RSS |
+| memória, o daemon | 880 kB de RSS |
+| memória, o ajudante de rede | 716 kB de RSS, e **não cresce entre pedidos** |
+| memória, montando um lote | 396 kB de pico, com a fila podada |
 | um envio pelo WiFi | ~0,1% de bateria |
 | “tocando agora” | 10 ms por detecção; 2,4 s de processador por **hora** |
+
+Os 716 kB do ajudante são permanentes, e essa troca é proposital: um custo
+constante em lugar de alocar justo no momento em que o player precisa de
+memória. O aparelho fica com uns 1,5 MB livres tocando Tidal, e o que
+acontecia ali antes era um `curl` de 1,6 MB sendo criado. Quem mata é o pico,
+não a média.
 
 O que pesa de verdade é ter o WiFi ligado — o rádio consome 50-150 mW contra os
 ~260 mW do aparelho tocando, o que tira 20-40% da autonomia. Essa conta é do
@@ -140,9 +150,15 @@ indistinguível de zero.
 | **Python 3.9+ com Tkinter** | só a biblioteca padrão; nada de `pip install` |
 | **adb** (Android Platform Tools) | é como o programa fala com o R1 |
 
-É só isso, para tudo menos um recurso opcional. Os dois programas que rodam no
+É só isso, para tudo menos um recurso opcional. Os três programas que rodam no
 R1 vêm já compilados, em [`r1lastfm/bin/`](r1lastfm/bin/) — você **não**
 precisa de compilador.
+
+| no aparelho | o que faz |
+|---|---|
+| `r1collect` | lê o histórico do player e o id da faixa do Tidal; nunca escreve |
+| `r1send` | monta e assina o lote do Last.fm, e escreve a planilha do cartão |
+| `r1net` | mantém uma conexão TLS aberta, para ir à rede não criar processo |
 
 **Só** se você quiser que o R1 mande sozinho pelo WiFi é que também precisa de
 **WSL + Zig**, para compilar um `curl` estático para o aparelho. O programa
@@ -406,8 +422,14 @@ a régua em mais de dez pontos.
 Detalhes que só aparecem mexendo no aparelho de verdade, e que estão
 documentados nos comentários do código:
 
-* o player grava a linha do histórico **quando a faixa termina**, não quando
-  começa — medido em 194 s numa faixa de 3min14;
+* o player grava a linha do histórico **quando a faixa começa**, não quando
+  termina — visto ao vivo: a linha mudou no mesmo segundo em que a faixa
+  mudou, com o áudio ainda tocando por mais 45 s. Uma medição anterior dizia o
+  contrário e está desmentida aqui: ela estava olhando a linha da faixa
+  ANTERIOR, e os 194 s que reportou eram a duração daquela faixa;
+* por isso uma faixa é fechada pela seguinte começar. A última de uma sessão
+  não tem nada depois dela, e é fechada por um marcador que o coletor escreve
+  quando vê o dispositivo de áudio fechar;
 * todo valor TEXT no banco carrega um byte NUL no fim (o player grava strings
   em C);
 * o `most_played.db` do cartão está corrompido de fábrica (uma linha mistura o
@@ -417,10 +439,54 @@ documentados nos comentários do código:
   este programa.
 
 O envio de dentro do aparelho é feito pelo `r1send.c`, que monta e assina o lote
-(MD5 sobre os parâmetros ordenados + segredo, como a API do Last.fm exige) e
-chama um `curl` estático. O daemon (`r1scrobbled.sh`) é ash de busybox e dorme
-num `read -t` sobre um fifo, que custa 34× menos que chamar `sleep` — é por isso
-que ele não cria processo nenhum enquanto espera.
+(MD5 sobre os parâmetros ordenados + segredo, como a API do Last.fm exige). O
+daemon (`r1scrobbled.sh`) é ash de busybox e dorme num `read -t` sobre um fifo,
+que custa 34× menos que chamar `sleep` — é por isso que ele não cria processo
+nenhum enquanto espera.
+
+### Por que nada é criado enquanto a música toca
+
+Esta foi aprendida no osso, e quem resolveu foi o kernel. Num aparelho que
+travou tocando Tidal, o log dizia:
+
+```
+HiBy_Main_Threa invoked oom-killer: gfp_mask=0x24201ca, order=0
+[ 5122] ...  2193  2105 ...  r1send            <- 8,4 MB residentes
+[  961] ... 68995  4836 ...  system_main_thr
+Normal free:928kB min:940kB ... all_unreclaimable? yes
+Killed process 961 (system_main_thr)
+```
+
+`order=0` — a alocação que faltou era **uma página de 4 KB**. Não era
+fragmentação, era falta de memória mesmo, e o kernel matou o maior processo,
+que é o player. O supervisor do firmware o reinicia e, depois de cinco mortes
+seguidas, reinicia o aparelho. Era isso o “travamento”.
+
+Os 8,4 MB eram nossos: o `r1send` reservava lugar para 4096 faixas de uma vez,
+e o `calloc` zerava tudo, então uma fila de dez custava o mesmo que uma de
+quatro mil. Agora ela cresce conforme enche, e o daemon poda a fila sozinho.
+
+A mesma lição desenhou a rede. O `r1net.c` sobe junto com o daemon, quando o
+aparelho ainda tem 22 MB livres, lê o pacote de certificados, semeia o gerador
+e monta os contextos de TLS **uma vez**, e depois espera num fifo com a conexão
+com o Last.fm aberta. Mandar um pedido virou:
+
+```sh
+printf '...\n' >&8        # printf e redirecionamento são internos do shell
+```
+
+Sem fork, sem exec, sem socket, sem handshake. São 421 KB de programa contra
+os 1.643.940 do `curl`, e o residente dele não se mexe entre um pedido e outro.
+O `curl` continua ali e continua sendo usado quando o ajudante não está de pé —
+o daemon cai para ele sozinho.
+
+Ligar o ajudante quebrou um aparelho de verdade três vezes antes de funcionar,
+então ele só entra atrás de um teste que roda um ciclo inteiro de escuta
+**duas vezes** — uma pelo `curl`, outra pelo ajudante — e exige que as duas
+filas saiam idênticas. Esse teste precisa do
+[`testes/servidor_falso.py`](testes/servidor_falso.py), um servidor HTTPS local
+que gera o próprio certificado, para a validação do ajudante ser exercitada em
+vez de desligada.
 
 ## Onde ficam as coisas
 
@@ -487,6 +553,29 @@ casos comuns:
   aparelho e espere até doze minutos, ou use *Enviar agora (teste)*.
 * **“scrobbles antigos não sobem”** — o Last.fm recusa timestamps de mais de 14
   dias. Nada a fazer.
+* **“uma faixa do Tidal não mostra nada — nem ‘tocando agora’, nem scrobble”** —
+  procure no registro do aparelho por `o catalogo nao conhece a faixa`. Alguns
+  ids que o player entrega não estão no catálogo público do Tidal: perguntar
+  por eles devolve `{"status":404,...,"userMessage":"Track [...] not found"}`, e
+  o mesmo 404 vem de `videos`, `albums` e `episodes`. Sem artista e título não
+  há o que anunciar nem o que scrobblar. O daemon escreve uma linha e para de
+  perguntar, em vez de gastar duas requisições por minuto para sempre atrás de
+  um nome que não virá.
+* **“o ‘tocando agora’ demora meio minuto para aparecer”** — é esperado, e é
+  quase todo o intervalo de sondagem. O daemon percebe uma troca de faixa do
+  Tidal em até 15 segundos, espera uma janela calma curta para não estar
+  pedindo memória no mesmo instante que o player, e então anuncia. Na prática,
+  de 10 a 20 segundos. Deixar mais rápido significa olhar mais vezes, o que
+  significa criar mais processos com a música tocando — exatamente o que
+  travava o aparelho.
+* **“travou tocando Tidal”** — isso deve ter acabado; se acontecer,
+  `REDE_NO_TIDAL=0` no alto do `/usr/data/scrobble/r1scrobbled` desliga toda a
+  rede enquanto uma faixa do Tidal toca. Os scrobbles continuam e só o aviso ao
+  vivo para:
+
+  ```bash
+  adb shell "sed -i 's/^REDE_NO_TIDAL=1/REDE_NO_TIDAL=0/' /usr/data/scrobble/r1scrobbled"
+  ```
 
 ## Rodando os testes
 
@@ -494,10 +583,27 @@ casos comuns:
 python testes/t_scrobble_all.py
 ```
 
-Doze módulos: o leitor de SQLite em C contra o SQLite de verdade, o daemon
+Vinte módulos: o leitor de SQLite em C contra o SQLite de verdade, o daemon
 rodando sob busybox ash, a reconstrução da fila, a assinatura, o envio
 automático, o “tocando agora”, as edições no `init.sh`, a API de aparelho contra
 um adb falso, a conferência de ELF, a própria janela, e o catálogo de traduções.
+
+O mais longo é o ciclo do Tidal, e ele existe por causa de cicatrizes. Ele toca
+uma faixa, repete, pula outra, toca mais uma, derruba a rede no meio e resolve
+consultas pendentes — tudo na mesma execução — e depois **conta as linhas da
+fila por faixa**. Aí refaz tudo pelo ajudante de rede residente e exige que as
+duas filas saiam idênticas:
+
+```
+OK  o ajudante nao muda o que chega na fila
+    curl deu (2, 0, 2, 0) e o ajudante deu (2, 0, 2, 0)
+OK  e com ele nenhum curl foi criado
+```
+
+Três regressões diferentes chegaram a um aparelho de verdade antes de esse
+teste existir — um anúncio saindo de 15 em 15 segundos, um anúncio que não
+voltava mais depois de uma requisição falhar, e a mesma faixa entrando três
+vezes na fila. Todas passariam por um teste que olhasse uma coisa de cada vez.
 
 Os testes que falam com a API real do Last.fm são pulados a menos que você passe
 a sua chave:

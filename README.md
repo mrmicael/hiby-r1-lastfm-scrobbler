@@ -71,7 +71,9 @@ from the bottom-right corner of the window at any time.
 | **Honest listening times** | The seconds are **measured** — audio actually coming out of the device — not inferred from the gap between two history rows. Pausing suspends the count instead of ending the track; a track you skipped at 0:19 is recorded as 19 seconds and does not go. A track has to play almost to the end to count: 90% of it, stricter than the half Last.fm settles for. |
 | **Fast** | The scrobble appears a couple of seconds after the track ends, not on a twelve-minute timer. |
 | **A log and a spreadsheet on the SD card** | `<card>/r1lastfm/scrobbles.csv` and `r1lastfm.log`. Pull the card, open the CSV in a spreadsheet — no ADB, no this program, nothing. |
-| **Cheap** | 1 ms of CPU per cycle, **zero child processes** while idle, 880 kB of RAM. Measured on the device. |
+| **It does not create anything while music plays** | Going to the network used to mean forking a 1.6 MB `curl`, opening a socket and negotiating TLS — on a device with 1.5 MB free. A resident helper holds one TLS connection open, so a request became a write to a descriptor that already exists: **zero processes**. |
+| **It keeps its own house** | The queue drops what Last.fm has already accepted, by itself, when the audio is stopped. Without that it grew forever, and so did the memory needed to read it. |
+| **Cheap** | 1 ms of CPU per cycle, **zero child processes** while idle. Measured on the device, not estimated. |
 | **Yours** | Your own Last.fm API key, stored only on your computer. No account, no server, no telemetry, nothing phones home. |
 
 ### In detail
@@ -99,6 +101,17 @@ from the bottom-right corner of the window at any time.
 * **Writes a log and a spreadsheet to the memory card**, at
   `<card>/r1lastfm/`: `r1lastfm.log` and `scrobbles.csv`. Pull the card, open
   the CSV in a spreadsheet — no ADB, no this program, nothing.
+* **Never creates a process to reach the network while you are listening.** A
+  resident helper (`r1net`) starts with the daemon, when the device still has
+  22 MB free, and pays every expensive cost once — reading the certificate
+  bundle, seeding the random generator, building the TLS contexts. After that
+  a request is a line written to a descriptor that is already open, on a
+  connection that is already negotiated.
+* **Trims its own queue.** What Last.fm has accepted is dropped from the
+  device's queue automatically, when the audio is stopped, at most once every
+  six hours. It matters more than it sounds: the memory needed to read the
+  queue grows with the queue, so one that is never trimmed slowly becomes a
+  problem again.
 
 ### The spreadsheet on the card
 
@@ -128,9 +141,17 @@ Measured on the device, not estimated:
 |---|---|
 | collector, idle | 1 ms of CPU per minute — 0.0017% of the time, **zero child processes** |
 | collector, playing | one cycle every 15 s, same 1 ms per cycle |
-| memory | 880 kB RSS |
+| memory, the daemon | 880 kB RSS |
+| memory, the network helper | 716 kB RSS, and it **does not grow between requests** |
+| memory, assembling a batch | 396 kB peak, with a trimmed queue |
 | one Wi-Fi send | ~0.1% of the battery |
 | “now playing” | 10 ms per detection; 2.4 s of CPU per **hour** |
+
+The network helper's 716 kB are permanent, and that is a deliberate trade: a
+constant cost in exchange for never allocating at the moment the player needs
+memory. The device has about 1.5 MB free while Tidal plays, and what used to
+happen there was a 1.6 MB `curl` being forked. The peak is what kills, not the
+average.
 
 What actually costs is having Wi-Fi on — the radio draws 50-150 mW against the
 ~260 mW of the device playing, which takes 20-40% off the battery life. That
@@ -146,9 +167,15 @@ cost is indistinguishable from zero.
 | **Python 3.9+ with Tkinter** | standard library only; nothing to `pip install` |
 | **adb** (Android Platform Tools) | how the program talks to the R1 |
 
-That is all, for everything except one optional feature. The two programs that
-run on the R1 ship already compiled, in
+That is all, for everything except one optional feature. The three programs
+that run on the R1 ship already compiled, in
 [`r1lastfm/bin/`](r1lastfm/bin/) — you do **not** need a compiler.
+
+| on the device | what it does |
+|---|---|
+| `r1collect` | reads the player's history and the Tidal track id; never writes |
+| `r1send` | assembles and signs the Last.fm batch, and writes the card's spreadsheet |
+| `r1net` | holds one TLS connection open, so reaching the network creates no process |
 
 **Only** if you want the R1 to send by itself over Wi-Fi do you also need
 **WSL + Zig**, to build a static `curl` for the device. The program installs
@@ -347,12 +374,17 @@ In card 4, in this order:
    them for the R1's MIPS, on your computer.
 2. **Download certificates** — the root bundle published by the curl project.
    Without it the device cannot verify who it is talking to.
-3. **Enable Wi-Fi sending** — this puts the session key and the two programs on
-   the device.
+3. **Enable Wi-Fi sending** — this puts the session key and the sending
+   programs on the device.
 4. **Send now (test)** — proves it works without waiting twelve minutes.
 
 Tick *Show “now playing” on my profile* if you want live scrobbling. It applies
 immediately, no reinstall needed.
+
+`curl` stays on the device as the fallback: when the resident helper is not
+running, the daemon uses it and says so in the log. That is also why the
+certificates matter for both — neither will send without being able to check
+who is on the other end.
 
 ### Checking without opening the window
 
@@ -423,9 +455,53 @@ in the code's comments:
 
 Sending from inside the device is done by `r1send.c`, which assembles and signs
 the batch (MD5 over the sorted parameters plus the secret, as the Last.fm API
-requires) and calls a static `curl`. The daemon (`r1scrobbled.sh`) is busybox
-ash and sleeps on a `read -t` over a fifo, which costs 34× less than calling
-`sleep` — that is why it spawns no processes at all while waiting.
+requires). The daemon (`r1scrobbled.sh`) is busybox ash and sleeps on a
+`read -t` over a fifo, which costs 34× less than calling `sleep` — that is why
+it spawns no processes at all while waiting.
+
+### Why nothing is created while the music plays
+
+This one was learned the hard way, and the kernel is what settled it. On a
+device that froze while Tidal played, the log said:
+
+```
+HiBy_Main_Threa invoked oom-killer: gfp_mask=0x24201ca, order=0
+[ 5122] ...  2193  2105 ...  r1send            <- 8.4 MB resident
+[  961] ... 68995  4836 ...  system_main_thr
+Normal free:928kB min:940kB ... all_unreclaimable? yes
+Killed process 961 (system_main_thr)
+```
+
+`order=0` — the allocation that failed was a single 4 KB page. It was not
+fragmentation, it was plain exhaustion, and the kernel killed the biggest
+process, which is the player. The firmware's supervisor restarts it and, after
+five deaths in a row, reboots the device. That is what a "freeze" was.
+
+The 8.4 MB were ours: `r1send` reserved room for 4096 tracks up front and
+`calloc` zeroed all of it, so a queue of ten cost the same as a queue of four
+thousand. It now grows as it fills, and the daemon trims the queue by itself.
+
+The same lesson shaped the network. `r1net.c` starts with the daemon, while
+the device still has 22 MB free, parses the certificate bundle, seeds the
+generator and builds its TLS contexts **once**, then waits on a fifo with the
+connection to Last.fm held open. Sending a request became:
+
+```sh
+printf '...\n' >&8        # printf and redirection are shell builtins
+```
+
+No fork, no exec, no socket, no handshake. It is 421 KB of program against
+`curl`'s 1,643,940, and its resident size does not move between requests.
+`curl` is still there and still used when the helper is not running — the
+daemon falls back to it on its own.
+
+Connecting the helper broke a real device three times before it worked, so it
+is only wired in behind a test that runs a whole listening cycle **twice** —
+once through `curl`, once through the helper — and requires the two queues to
+come out identical. That test needs
+[`testes/servidor_falso.py`](testes/servidor_falso.py), a local HTTPS server
+that generates its own certificate, so the helper's certificate validation is
+exercised rather than switched off.
 
 ## Where things live
 
@@ -495,6 +571,29 @@ cases:
   itself. Turn it on and wait up to twelve minutes, or use *Send now (test)*.
 * **“old scrobbles do not go up”** — Last.fm refuses timestamps older than 14
   days. Nothing to be done.
+* **“a Tidal track shows nothing at all — no ‘now playing’, no scrobble”** —
+  look in the device log for `o catalogo nao conhece a faixa`. Some ids the
+  player hands over are not in Tidal's public catalogue: asking for them
+  returns `{"status":404,...,"userMessage":"Track [...] not found"}`, and the
+  same 404 comes back from `videos`, `albums` and `episodes`. Without an
+  artist and a title there is nothing to announce and nothing to scrobble.
+  The daemon writes one line and stops asking, rather than spending two
+  requests a minute forever on a name that will not come.
+* **“the ‘now playing’ takes half a minute to appear”** — that is expected,
+  and it is mostly the polling interval. The daemon notices a Tidal track
+  change within 15 seconds, waits out a short calm window so it is not asking
+  for memory at the same moment the player is, and then announces. Roughly
+  10 to 20 seconds in practice. Making it faster means looking more often,
+  which means creating more processes while music plays — the exact thing
+  that used to freeze the device.
+* **“it froze while playing Tidal”** — this should be gone; if it happens,
+  `REDE_NO_TIDAL=0` at the top of `/usr/data/scrobble/r1scrobbled` turns off
+  all network use while a Tidal track plays. Scrobbles keep working and only
+  the live indicator stops:
+
+  ```bash
+  adb shell "sed -i 's/^REDE_NO_TIDAL=1/REDE_NO_TIDAL=0/' /usr/data/scrobble/r1scrobbled"
+  ```
 
 ## Running the tests
 
@@ -502,10 +601,28 @@ cases:
 python testes/t_scrobble_all.py
 ```
 
-Twelve modules: the SQLite reader in C against real SQLite, the daemon running
+Twenty modules: the SQLite reader in C against real SQLite, the daemon running
 under busybox ash, queue reconstruction, signing, automatic sending, live “now
 playing”, the `init.sh` edits, the device API against a fake adb, the ELF check,
 the window itself, and the translation catalogue.
+
+The longest one is the Tidal cycle, and it exists because of scars. It plays a
+track, repeats it, skips one, plays another, drops the network in the middle
+and resolves pending lookups — all in the same run — and then **counts the
+queue lines per track**. Then it does the whole thing again through the
+resident network helper and demands the two queues come out identical:
+
+```
+OK  the helper does not change what reaches the queue
+    curl gave (2, 0, 2, 0) and the helper gave (2, 0, 2, 0)
+OK  and no curl was created
+```
+
+Three separate regressions reached a real device before that test existed —
+an announcement firing every 15 seconds, an announcement that never came back
+after one failed request, and the same track entering the queue three times.
+Every one of them would have passed a test that checked a single thing at a
+time.
 
 Tests that talk to the real Last.fm API are skipped unless you provide your own
 key:
