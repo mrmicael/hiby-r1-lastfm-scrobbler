@@ -1400,6 +1400,41 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.29": {
+        "en": "when memory runs out, the scrobbler dies instead of the music. "
+              "The R1 has no swap, and while audio plays there is barely a "
+              "megabyte free; the kernel then kills the biggest process, which "
+              "is the player. The network helper now volunteers for that: it "
+              "is marked as the preferred victim, so 800 KB of ours is taken "
+              "and the music keeps going. If it does get killed mid-track, "
+              "nothing falls back to curl — starting a 1.6 MB process exactly "
+              "when memory ran out is how the crash happened in the first "
+              "place. The network simply waits for the pause and the helper "
+              "comes back then. The death is also noticed within seconds "
+              "instead of after ninety seconds of waiting on an answer that "
+              "was never coming. And a real waste came out of it: the country "
+              "code, which Tidal only needs to be asked once, was being "
+              "fetched again for EVERY track — the value was saved inside a "
+              "subshell and thrown away on the way out, so the cache never "
+              "worked a single time. Measured: one query for six tracks, where "
+              "there used to be six",
+        "pt": "quando a memoria acaba, quem morre e o scrobbler, nao a musica. "
+              "O R1 nao tem swap, e com audio tocando sobra pouco mais de um "
+              "megabyte; ai o kernel mata o maior processo, que e o player. O "
+              "ajudante de rede agora se oferece no lugar: ele fica marcado "
+              "como vitima preferencial, entao levam 800 KB nossos e a musica "
+              "continua. Se ele for morto no meio da faixa, nada volta para o "
+              "curl — subir um processo de 1,6 MB justamente quando faltou "
+              "memoria foi o que causou o travamento desde o comeco. A rede "
+              "espera a pausa, e na pausa o ajudante volta. A morte tambem "
+              "passa a ser percebida em segundos, e nao depois de noventa "
+              "segundos esperando uma resposta que nunca viria. E disso saiu "
+              "um desperdicio de verdade: o codigo do pais, que o Tidal so "
+              "precisa informar uma vez, estava sendo buscado de novo a CADA "
+              "faixa — o valor era guardado dentro de um subshell e jogado "
+              "fora na volta, entao o cache nunca funcionou uma vez sequer. "
+              "Medido: uma consulta para seis faixas, onde antes eram seis",
+    },
     "novidade.28": {
         "en": "two fixes found by measuring instead of assuming. The first: "
               "version 26 shortened the calm window from 20 seconds to 6 and "

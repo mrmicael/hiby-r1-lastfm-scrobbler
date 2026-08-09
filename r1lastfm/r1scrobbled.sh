@@ -913,6 +913,50 @@ rede_pronta=0
 http_seq=0
 http_codigo=0
 rede_falhas=0
+# 1 quando o ajudante chegou a subir e depois caiu — provavelmente levado pelo
+# matador de memória. É diferente de nunca ter existido, e a resposta é outra:
+# quem nunca teve ajudante usa o curl à vontade; quem acabou de perder o dele
+# por falta de memória não pode criar um processo de 1,6 MB naquele instante.
+rede_caiu=0
+# O pid do ajudante, para saber que ele morreu SEM esperar um pedido falhar.
+#
+# Descobrir pelo timeout custava dois pedidos de 45 s — noventa segundos com o
+# daemon parado esperando resposta de um processo que já não existe, e isso
+# logo depois de o aparelho ter ficado sem memória. `[ -d /proc/<pid> ]` é
+# teste interno do shell: custa zero e responde na hora.
+aj_pid=""
+
+# O ajudante ainda está vivo? Chamada a cada volta; não cria processo nenhum.
+#
+# Olhar se /proc/<pid> existe NÃO basta, e isso custou uma rodada de teste
+# para aparecer: o ajudante é filho do daemon, e um filho morto vira ZUMBI até
+# alguém recolhê-lo. Zumbi continua tendo o diretório em /proc, então a
+# verificação óbvia dizia "vivo" para um processo que o kernel já tinha
+# matado — exatamente o caso que esta função existe para pegar. O que
+# distingue é o estado, no terceiro campo do /proc/<pid>/stat.
+conferir_ajudante() {
+    [ "$rede_pronta" = 1 ] || return 0
+    [ -n "$aj_pid" ] || return 0
+
+    _aj_est=""
+    read -r _aj_p _aj_nome _aj_est _aj_resto < "/proc/$aj_pid/stat" 2>/dev/null
+    case "$_aj_est" in
+        "" | Z) ;;          # sumiu de vez, ou morto esperando ser recolhido
+        *)      return 0 ;; # vivo
+    esac
+
+    # Recolhe o zumbi. Ele já morreu, então isto retorna na hora e não bloqueia.
+    wait "$aj_pid" 2>/dev/null
+
+    rede_pronta=0
+    rede_caiu=1
+    aj_pid=""
+    if [ -n "$tid_id" ]; then
+        registrar "r1net morreu com o audio tocando; sem rede ate a pausa"
+    else
+        registrar "r1net morreu; a rede volta pelo curl ate ele levantar"
+    fi
+}
 
 subir_ajudante() {
     rede_pronta=0
@@ -938,7 +982,25 @@ subir_ajudante() {
     }
     exec 8<> "$FIFO_PED" || return 1
     exec 9<> "$FIFO_RESP" || return 1
+
+    # Se faltar memória, que o kernel leve ESTE processo, e não o player.
+    #
+    # Isto não mata nada nem antecipa nada: o matador do kernel só entra
+    # quando uma alocação falhou e não há mais o que recuperar, e nesse
+    # momento alguém morre de qualquer jeito. O ajuste só diz quem.
+    #
+    # Num travamento de verdade neste aparelho faltaram OITO kilobytes —
+    # `Normal free:932kB min:940kB` — e o escolhido foi o player, com 27 MB.
+    # O ajudante estava ali do lado segurando 530 KB. Levá-lo teria liberado
+    # sessenta vezes o que faltava, e a música não teria parado.
+    #
+    # Perder o ajudante custa o "tocando agora" até a próxima pausa. Perder o
+    # player para a música e, depois de cinco vezes, reinicia o aparelho.
+    echo 900 > "/proc/$_aj_pid/oom_score_adj" 2>/dev/null
+
+    aj_pid=$_aj_pid
     rede_pronta=1
+    rede_caiu=0
     registrar "r1net de pe (pid $_aj_pid): a rede deixa de criar processos"
     return 0
 }
@@ -952,7 +1014,21 @@ subir_ajudante() {
 # $http_codigo. Devolve 2 quando não há ajudante — o sinal para usar o curl.
 http_pedir() {
     http_codigo=0
-    [ "$rede_pronta" = 1 ] || return 2
+    if [ "$rede_pronta" != 1 ]; then
+        # O ajudante CAIU (não é o caso de nunca ter existido) e ainda há
+        # áudio saindo. Isso não é falha de rede: é o aparelho dizendo que
+        # está sem memória, e ele já provou isso matando alguém.
+        #
+        # Responder a isso criando um curl de 1,6 MB seria fazer exatamente a
+        # coisa errada no pior momento — e o próximo a morrer seria o player.
+        # Então aqui não se faz NADA até o som parar. A fila continua sendo
+        # escrita, que é texto e não custa memória; o que se perde é só o
+        # aviso ao vivo.
+        if [ "$rede_caiu" = 1 ] && [ -n "$tid_id" ]; then
+            return 3
+        fi
+        return 2
+    fi
     http_seq=$((http_seq + 1))
     _hid="q$http_seq"
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
@@ -965,18 +1041,40 @@ http_pedir() {
     _voltas=0
     while [ "$_voltas" -lt 4 ]; do
         _voltas=$((_voltas + 1))
-        IFS='	' read -t 45 -r _rid _rcod _rby <&9 2>/dev/null || {
-            # O ajudante emperrou. Sem isto TUDO para em silêncio: cada pedido
+        # A espera é fatiada de propósito. Um `read -t 45` só volta ao laço 45 s
+        # depois, e se o ajudante morreu no meio do pedido — que é exatamente
+        # quando ele morre, porque é aí que ele gasta memória — o daemon fica
+        # cego esse tempo todo. Em fatias, o conferir_ajudante roda a cada 5 s e
+        # a morte é vista quase na hora.
+        _esperei=0
+        while :; do
+            IFS='	' read -t 5 -r _rid _rcod _rby <&9 2>/dev/null && break
+            _esperei=$((_esperei + 5))
+            conferir_ajudante
+            if [ "$rede_pronta" != 1 ]; then
+                # Morreu: o conferir_ajudante já anotou e já mandou a rede de
+                # volta ao curl. Não há resposta para esperar.
+                return 1
+            fi
+            [ "$_esperei" -lt 45 ] || break
+        done
+        if [ "$_esperei" -ge 45 ]; then
+            # Vivo, mas emperrado. Sem isto TUDO para em silêncio: cada pedido
             # espera 45 s e falha, e nada mais sai. Duas vezes seguidas e ele é
             # dado por morto; a rede volta ao curl, que é pesado mas funciona.
             rede_falhas=$((rede_falhas + 1))
             registrar "r1net nao respondeu a tempo ($rede_falhas)"
             if [ "$rede_falhas" -ge 2 ]; then
-                registrar "r1net dado por perdido; a rede volta pelo curl"
                 rede_pronta=0
+                rede_caiu=1
+                if [ -n "$tid_id" ]; then
+                    registrar "r1net caiu com o audio tocando; sem rede ate a pausa"
+                else
+                    registrar "r1net caiu; a rede volta pelo curl"
+                fi
             fi
             return 1
-        }
+        fi
         rede_falhas=0
         [ "$_rid" = "$_hid" ] || continue
         http_codigo=$_rcod
@@ -1194,8 +1292,13 @@ tidal_token() {
 
 # O país da conta, que a API exige em toda consulta. Perguntado uma vez e
 # guardado: ele não muda, e é uma requisição a menos por faixa.
+# O país fica em $tid_pais, e NÃO sai pelo stdout. A diferença não é de estilo:
+# quem chama com $( ) roda tudo num subshell, e ali o tid_pais que esta função
+# grava se perde na volta — o cache logo abaixo nunca pegava e cada faixa
+# pagava um /v1/sessions inteiro, handshake de TLS e tudo. Junto com o país se
+# perdia também o aviso de que o ajudante tinha morrido.
 tidal_pais() {
-    [ -n "$tid_pais" ] && { echo "$tid_pais"; return 0; }
+    [ -n "$tid_pais" ] && return 0
     t_ca=$(cacert); [ -n "$t_ca" ] || return 1
     t_tok=$(tidal_token) || return 1
     [ -n "$ip_tidal" ] || ip_tidal=$(resolver "$TIDAL_API")
@@ -1217,13 +1320,18 @@ tidal_pais() {
                        | tr -d '"' | cut -d: -f2 | tr -cd 'A-Za-z')
             rm -f "$TIDAL_JSON"
             case "$tid_pais" in
-                [A-Za-z][A-Za-z]) echo "$tid_pais"; return 0 ;;
+                [A-Za-z][A-Za-z]) return 0 ;;
             esac
             tid_pais=""; return 1
         fi
         rm -f "$TIDAL_JSON"
-        [ "$_rcp" = 1 ] && { tid_pais=""; return 1; }
-        # rc 2 = sem ajudante; segue para o curl.
+        # 1 = o pedido falhou; 3 = sem memória para fazer rede agora. Nos dois
+        # casos NÃO se cai para o curl: no segundo isso seria justamente criar
+        # um processo grande no momento em que não há memória.
+        case "$_rcp" in
+            1|3) tid_pais=""; return 1 ;;
+        esac
+        # rc 2 = ajudante nunca existiu; aí sim segue para o curl.
     fi
     [ -x "$CURL" ] || return 1
     tid_pais=$("$CURL" -sS --max-time 25 --cacert "$t_ca" $t_res \
@@ -1232,7 +1340,7 @@ tidal_pais() {
         | tr ',' '\n' | grep countryCode | tr -d '"' | cut -d: -f2 \
         | tr -cd 'A-Za-z')
     case "$tid_pais" in [A-Za-z][A-Za-z]) ;; *) tid_pais=""; return 1 ;; esac
-    echo "$tid_pais"
+    return 0
 }
 
 # O cabeçalho com o token do Tidal, num arquivo só nosso.
@@ -1264,7 +1372,8 @@ tidal_meta() {
     tem_rede || return 1
     t_ca=$(cacert); [ -n "$t_ca" ] || return 1
     t_tok=$(tidal_token) || return 1
-    t_pais=$(tidal_pais) || return 1
+    tidal_pais || return 1
+    t_pais=$tid_pais
     [ -n "$ip_tidal" ] || ip_tidal=$(resolver "$TIDAL_API")
     t_res=""
     [ -n "$ip_tidal" ] && t_res="--resolve $TIDAL_API:443:$ip_tidal"
@@ -1276,8 +1385,13 @@ tidal_meta() {
                    - "$TIDAL_JSON" "$CAB_TIDAL"
         _rcm=$?
         rm -f "$CAB_TIDAL"
-        [ "$_rcm" = 0 ] && _feito=1
-        [ "$_rcm" = 1 ] && return 1
+        case "$_rcm" in
+            0) _feito=1 ;;
+            # 3 = sem memória para rede agora. Cair para o curl aqui seria
+            # criar um processo de 1,6 MB no momento em que o kernel acabou
+            # de matar alguém por falta de memória.
+            1|3) return 1 ;;
+        esac
     fi
     if [ "$_feito" = 0 ]; then
         [ -x "$CURL" ] || return 1
@@ -1566,8 +1680,8 @@ olhar_tidal() {
             tidal_fechar "$t_agora"
             tid_id=""; tid_desde=0
         fi
-        # Silêncio: sobra memória de verdade (22 MB contra 1,5 MB). É aqui que
-        # o que ficou pendente por falta de metadados se resolve, uma por volta.
+        # Silêncio: sobra memória de verdade. É aqui que o que ficou pendente
+        # por falta de metadados se resolve, uma por volta.
         tid_rede_ok=1
         tidal_resolver
         return 0
@@ -2569,6 +2683,19 @@ FIM_ESTADO
                 adiantar_envio
             fi
         fi
+    fi
+
+    # O ajudante ainda está de pé? Teste interno do shell, custa zero.
+    conferir_ajudante
+
+    # Caiu, e agora não há áudio saindo: é a hora de levantá-lo de novo. Com o
+    # som parado o aparelho tem folga — a mesma razão pela qual ele sobe junto
+    # com o daemon. Fica aqui, e não dentro do acompanhamento do Tidal, para
+    # valer também para quem só ouve do cartão.
+    if [ "$rede_caiu" = 1 ] && [ "$rede_pronta" != 1 ] &&
+       [ "$pcm_aberto" != 1 ]; then
+        registrar "audio parado; levantando o r1net de novo"
+        subir_ajudante || :
     fi
 
     olhar_tocando

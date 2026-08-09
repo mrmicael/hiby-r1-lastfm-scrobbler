@@ -2037,5 +2037,159 @@ check("e os marcadores de sessao ficaram",
 
 print()
 print("=" * 74)
+print("17. o ajudante morrendo NAO vira um curl no meio da musica")
+print("=" * 74)
+# O r1net e marcado como vitima preferencial do matador de memoria: se faltar
+# memoria, que o kernel leve ele e nao o player. Num travamento real deste
+# aparelho faltaram OITO kilobytes (`Normal free:932kB min:940kB`) e o
+# escolhido foi o player, com 27 MB; o ajudante estava ali com 530 KB.
+#
+# So que a queda para o curl, que existe para quem nunca instalou o ajudante,
+# seria desastrosa aqui: criar um processo de 1,6 MB logo depois de o kernel
+# ter matado alguem por falta de memoria e pedir para o proximo a morrer ser o
+# player. Entao o ajudante morrer COM AUDIO TOCANDO tem de significar silencio
+# de rede, e nao curl.
+#
+# O teste mata o r1net no meio da reproducao e cobra que nenhum curl nasca.
+script24 = f"""
+pkill -f "{T}/morte/rs" 2>/dev/null || true
+pkill -f "{T}/morte/scrobble/r1net" 2>/dev/null || true
+sleep 1
+rm -rf {T}/morte; mkdir -p {T}/morte/scrobble {T}/morte/tmp
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/morte/scrobble/real
+cp $HOME/.cache/r1tls/r1net {T}/morte/scrobble/r1net
+chmod 755 {T}/morte/scrobble/real {T}/morte/scrobble/r1net
+cat > {T}/morte/scrobble/r1collect <<'FIMC'
+{CENARIO.replace("CTRLTID", T + "/morte/ctrltid")
+        .replace("CTRL", T + "/morte/ctrl")
+        .replace("REAL", T + "/morte/scrobble/real")}
+FIMC
+cat > {T}/morte/scrobble/curl <<'FIMCURL'
+#!/bin/sh
+echo "curl nasceu" >> {T}/morte/curl.log
+exit 0
+FIMCURL
+cat > {T}/morte/scrobble/r1send <<'FIMSEND'
+#!/bin/sh
+case "$1" in
+tidalinfo) printf 'Artista\\nFaixa\\nAlbum\\n40\\n' ;;
+agora)     printf 'corpo\\n' > "$5" ;;
+preparar)  exit 3 ;;
+esac
+exit 0
+FIMSEND
+chmod 755 {T}/morte/scrobble/r1collect {T}/morte/scrobble/curl \\
+          {T}/morte/scrobble/r1send
+
+cp {r.to_posix_path(WORK)}/sim1.db {T}/morte/banco.db
+echo chave > {T}/morte/scrobble/sk
+echo seg   > {T}/morte/scrobble/segredo
+echo api   > {T}/morte/scrobble/apikey
+cp /etc/ssl/certs/ca-certificates.crt {T}/morte/scrobble/cacert.pem
+printf 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\n' \\
+    > {T}/morte/tat
+echo ini > {T}/morte/user.ini
+printf 'pcm=1\\n\\n' > {T}/morte/ctrl
+echo 909 > {T}/morte/ctrltid
+
+sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/morte/scrobble#' \\
+    -e 's#^DB=.*#DB={T}/morte/banco.db#' \\
+    -e 's#^DB_INTERNO=.*#DB_INTERNO={T}/morte/banco.db#' \\
+    -e 's#^MAIS=.*#MAIS={T}/morte/nada.db#' \\
+    -e 's#^CARTOES=.*#CARTOES="{T}/morte/sd"#' \\
+    -e 's#^COPIA=.*#COPIA={T}/morte/tmp/c.db#' \\
+    -e 's#^PARCIAL=.*#PARCIAL={T}/morte/tmp/p.tsv#' \\
+    -e 's#^LOG=.*#LOG={T}/morte/tmp/log#' \\
+    -e 's#^TICK=.*#TICK={T}/morte/tmp/tick#' \\
+    -e 's#^TRAVA=.*#TRAVA={T}/morte/tmp/rodando#' \\
+    -e 's#^TAT=.*#TAT={T}/morte/tat#' \\
+    -e 's#^TIDAL_INI=.*#TIDAL_INI={T}/morte/user.ini#' \\
+    -e 's#^TIDAL_JSON=.*#TIDAL_JSON={T}/morte/tmp/tj#' \\
+    -e 's#^FIFO_PED=.*#FIFO_PED={T}/morte/tmp/ped#' \\
+    -e 's#^FIFO_RESP=.*#FIFO_RESP={T}/morte/tmp/resp#' \\
+    -e 's#^CAB_TIDAL=.*#CAB_TIDAL={T}/morte/tmp/cab#' \\
+    -e 's#^CACERT_SD=.*#CACERT_SD={T}/morte/nao.pem#' \\
+    -e 's#^TIDAL_API=.*#TIDAL_API=nao.existe.invalido#' \\
+    -e 's#^API_HOST=.*#API_HOST=nao.existe.invalido#' \\
+    -e 's#^AGORA=0#AGORA=1#' \\
+    -e 's#^REDE_NO_TIDAL=.*#REDE_NO_TIDAL=1#' \\
+    -e 's#^RAPIDO=15#RAPIDO=2#' -e 's#^CALMA=20#CALMA=3#' \\
+    -e 's#^ASSENTAR=5#ASSENTAR=1#' -e 's#^LENTO=60#LENTO=2#' \\
+    {p} > {T}/morte/rs
+chmod 755 {T}/morte/rs
+
+busybox ash {T}/morte/rs &
+PID=$!
+sleep 10
+echo "=== O AJUDANTE SUBIU? ==="
+echo "SUBIU=$(grep -c 'r1net de pe' {T}/morte/tmp/log 2>/dev/null)"
+echo "=== A VITIMA PREFERENCIAL FOI MARCADA? ==="
+adj=0
+for pp in /proc/[0-9]*; do
+    c=$(tr '\\0' ' ' < "$pp/cmdline" 2>/dev/null)
+    case "$c" in *{T}/morte/scrobble/r1net*)
+        adj=$(cat "$pp/oom_score_adj" 2>/dev/null) ;;
+    esac
+done
+echo "ADJ=$adj"
+
+# Agora o kernel "mata" o ajudante, com o audio ainda tocando.
+pkill -9 -f "{T}/morte/scrobble/r1net"
+curl0=$(wc -l < {T}/morte/curl.log 2>/dev/null || echo 0)
+sleep 30
+echo "=== NASCEU CURL DEPOIS DA MORTE, COM AUDIO TOCANDO? ==="
+echo "CURLS=$(( $(wc -l < {T}/morte/curl.log 2>/dev/null || echo 0) - curl0 ))"
+echo "=== O DAEMON ENTENDEU O QUE ACONTECEU? ==="
+# O prefixo comum das duas mensagens: a de audio tocando e a de audio parado.
+# Qual das duas sai depende de haver faixa em curso no instante da morte, e as
+# duas levam ao mesmo estado — o que importa e ele ter percebido.
+echo "PERCEBEU=$(grep -c 'r1net morreu' {T}/morte/tmp/log 2>/dev/null || echo 0)"
+grep 'r1net morreu' {T}/morte/tmp/log 2>/dev/null | tail -1
+
+# O audio para: agora ele pode levantar o ajudante de novo.
+printf 'pcm=0\\n\\n' > {T}/morte/ctrl
+sleep 20
+echo "=== RESSUSCITOU NA PAUSA? ==="
+echo "VOLTOU=$(grep -c 'levantando o r1net de novo' {T}/morte/tmp/log 2>/dev/null)"
+echo "=== O REGISTRO INTEIRO ==="
+cat {T}/morte/tmp/log 2>/dev/null | tail -20
+kill -TERM $PID 2>/dev/null
+pkill -f "{T}/morte/scrobble/r1net" 2>/dev/null || true
+sleep 1
+"""
+_tem_aj2 = r.posix_script('[ -x "$HOME/.cache/r1tls/r1net" ] && echo TEM || echo NAO',
+                          name="tem-r1net-2", mutating=False, quiet=True,
+                          timeout=30).stdout
+if "TEM" not in _tem_aj2:
+    print("   PULADO: compile o ajudante com r1lastfm/build_r1net.sh")
+else:
+    res24 = r.posix_script(script24, name="daemon-ajudante-morto",
+                           mutating=False, quiet=True, timeout=180)
+    # Inteiro, e nao os doze primeiros: o registro do daemon vem no fim, e foi
+    # justamente ele que eu passei duas rodadas tentando adivinhar porque o
+    # proprio corte da impressao o escondia.
+    print("\n".join("   " + l for l in res24.stdout.splitlines()))
+
+    check("o ajudante e marcado como vitima preferencial do OOM",
+          _num(res24.stdout, "ADJ") >= 500,
+          f"oom_score_adj={_num(res24.stdout, 'ADJ')} — sem isso o kernel "
+          f"escolhe o player, que e o processo grande")
+    check("morto com audio tocando, NENHUM curl nasce",
+          _num(res24.stdout, "CURLS") == 0,
+          f"{_num(res24.stdout, 'CURLS')} curl criados logo depois de o "
+          f"sistema ficar sem memoria — e pedir para o proximo morto ser o "
+          f"player")
+    check("o daemon percebe a morte sem esperar um pedido falhar",
+          _num(res24.stdout, "PERCEBEU") >= 1,
+          "nada no registro — a deteccao dependia de dois timeouts de 45s, "
+          "noventa segundos de daemon cego logo depois de faltar memoria")
+    check("e o ajudante volta quando o audio para",
+          _num(res24.stdout, "VOLTOU") >= 1,
+          "o r1net nao foi levantado de novo no silencio; ficaria no curl "
+          "para sempre")
+
+
+print()
+print("=" * 74)
 print("FALHAS:", falhas if falhas else "nenhuma")
 sys.exit(1 if falhas else 0)

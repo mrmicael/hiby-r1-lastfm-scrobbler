@@ -1,5 +1,48 @@
 # Changes since the last release
 
+## Device version 29 — the scrobbler dies so the music does not
+
+The R1 has no swap and no compaction. While audio plays, free memory sits at
+1.5–2 MB and stays there until playback stops. When an allocation fails at
+that point the kernel picks a victim by size, and the biggest process on the
+device is the player — so the crash people see is the music stopping.
+
+Nothing here makes memory appear. What changed is **who gets chosen**:
+
+- `r1net` is marked `oom_score_adj=900`. It is 800 KB resident. The kernel
+  takes it instead of the 27 MB player, and the music keeps playing.
+- If it is killed mid-track, **the daemon does not fall back to `curl`**.
+  Spawning a 1.6 MB process at the exact moment memory ran out is what caused
+  the original crash; doing it again as "recovery" would just re-run the
+  accident. The network goes quiet until the audio stops, and the helper is
+  brought back in the silence.
+
+**The death is now noticed in seconds, not in ninety.** Detection ran once per
+loop, but a pending request parked the whole loop inside `read -t 45` waiting
+for a reply from a process that no longer existed — so the one check that
+mattered could not run at the one moment it was needed. The wait is now sliced
+into 5-second pieces with a liveness check between them. Liveness is read from
+the state field of `/proc/<pid>/stat`, because a killed child becomes a zombie
+and `[ -d /proc/<pid> ]` still answers *yes*.
+
+**And a real waste surfaced underneath it.** Tidal's country code needs to be
+fetched once. It was being fetched **for every track**:
+
+```sh
+t_pais=$(tidal_pais) || return 1     # antes
+```
+
+`tidal_pais` stores the value in the global `tid_pais`, and `$( )` runs it in
+a subshell — so the assignment was discarded on the way out and the cache one
+line up could never fire. The tell was a log line that appeared twice: the
+same lost-state bug was also swallowing the notice that the helper had died.
+
+Measured over a six-track cycle: **1 `/v1/sessions` call, down from 6** — 12
+requests to 7, approaching half over a longer session. Every one of those was
+a full TLS handshake on a device with under 2 MB free.
+
+---
+
 ## Device version 28 — two things measurement caught that reasoning missed
 
 **The earlier wake-up was in the wrong place.** Version 26 shortened the calm
