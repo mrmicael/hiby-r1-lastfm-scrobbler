@@ -1663,5 +1663,171 @@ check("e o arquivo de pendentes ficou vazio",
 
 print()
 print("=" * 74)
+print("15. um ciclo INTEIRO do Tidal, e a fila conferida faixa por faixa")
+print("=" * 74)
+# Este teste existe por causa de um estrago de verdade. Ligar o ajudante de
+# rede ao daemon produziu, em producao, tres defeitos seguidos:
+#
+#   1. a mesma faixa anunciada de 15 em 15 segundos, sem parar;
+#   2. o anuncio sumindo para sempre depois de UMA falha passageira;
+#   3. a mesma faixa entrando TRES vezes na fila, duas delas como se tivesse
+#      sido ouvida inteira — scrobbles falsos no perfil de alguem.
+#
+# Os tres passariam por qualquer teste que olhasse uma coisa de cada vez. O
+# que os pega e um cenario longo, com repeticao, troca, falha de rede e
+# pendente sendo resolvido AO MESMO TEMPO — porque foi da mistura deles que os
+# defeitos nasceram —, e uma conferencia final que conta as linhas da fila por
+# faixa em vez de so procurar se a faixa esta la.
+#
+# Regra do teste: cada faixa entra na fila exatamente o numero de vezes que
+# foi tocada. Nem uma a menos, nem uma a mais.
+CENARIO = r"""#!/bin/sh
+case "$1" in
+estado)  cat CTRL 2>/dev/null ;;
+tidal)   cat CTRLTID 2>/dev/null ;;
+tocando) sed -n 2p CTRL 2>/dev/null ;;
+buscar)  exit 1 ;;
+*)       exec REAL "$@" ;;
+esac
+"""
+script22 = f"""
+pkill -f "{T}/ciclo/rs" 2>/dev/null || true
+sleep 1
+rm -rf {T}/ciclo; mkdir -p {T}/ciclo/scrobble {T}/ciclo/tmp
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/ciclo/scrobble/real
+chmod 755 {T}/ciclo/scrobble/real
+cat > {T}/ciclo/scrobble/r1collect <<'FIMC'
+{CENARIO.replace("CTRLTID", T + "/ciclo/ctrltid")
+        .replace("CTRL", T + "/ciclo/ctrl")
+        .replace("REAL", T + "/ciclo/scrobble/real")}
+FIMC
+# O curl falso: responde tudo, mas CAI nas chamadas 3 e 4 ao Last.fm, para
+# exercitar a falha passageira no meio do cenario.
+cat > {T}/ciclo/scrobble/curl <<'FIMCURL'
+#!/bin/sh
+url=""; alvo=""
+while [ $# -gt 0 ]; do
+    case "$1" in -o) alvo=$2; shift ;; http*) url=$1 ;; esac
+    shift
+done
+echo "$url" >> {T}/ciclo/curl.log
+case "$url" in
+    *sessions*) echo '{{"countryCode":"BR","x":"y"}}'; exit 0 ;;
+    *tracks/*)  [ -n "$alvo" ] && echo '{{"t":1}}' > "$alvo"; exit 0 ;;
+esac
+n=$(grep -c audioscrobbler {T}/ciclo/curl.log)
+if [ "$n" = 3 ] || [ "$n" = 4 ]; then exit 7; fi
+exit 0
+FIMCURL
+# Cada faixa tem duracao 40: curta o bastante para a repeticao acontecer
+# dentro do teste, longa o bastante para passar do minimo de 25s.
+cat > {T}/ciclo/scrobble/r1send <<'FIMSEND'
+#!/bin/sh
+case "$1" in
+tidalinfo) printf 'Artista\\nFaixa\\nAlbum\\n40\\n' ;;
+agora)     printf 'corpo\\n' > "$5" ;;
+esac
+exit 0
+FIMSEND
+chmod 755 {T}/ciclo/scrobble/r1collect {T}/ciclo/scrobble/curl \\
+          {T}/ciclo/scrobble/r1send
+
+cp {r.to_posix_path(WORK)}/sim1.db {T}/ciclo/banco.db
+echo chave > {T}/ciclo/scrobble/sk
+echo seg   > {T}/ciclo/scrobble/segredo
+echo api   > {T}/ciclo/scrobble/apikey
+echo cert  > {T}/ciclo/scrobble/cacert.pem
+printf 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\n' \\
+    > {T}/ciclo/tat
+echo ini > {T}/ciclo/user.ini
+printf 'pcm=1\\n\\n' > {T}/ciclo/ctrl
+echo 101 > {T}/ciclo/ctrltid
+
+sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/ciclo/scrobble#' \\
+    -e 's#^DB=.*#DB={T}/ciclo/banco.db#' \\
+    -e 's#^DB_INTERNO=.*#DB_INTERNO={T}/ciclo/banco.db#' \\
+    -e 's#^MAIS=.*#MAIS={T}/ciclo/nada.db#' \\
+    -e 's#^CARTOES=.*#CARTOES="{T}/ciclo/sd"#' \\
+    -e 's#^COPIA=.*#COPIA={T}/ciclo/tmp/c.db#' \\
+    -e 's#^PARCIAL=.*#PARCIAL={T}/ciclo/tmp/p.tsv#' \\
+    -e 's#^LOG=.*#LOG={T}/ciclo/tmp/log#' \\
+    -e 's#^TICK=.*#TICK={T}/ciclo/tmp/tick#' \\
+    -e 's#^TRAVA=.*#TRAVA={T}/ciclo/tmp/rodando#' \\
+    -e 's#^TAT=.*#TAT={T}/ciclo/tat#' \\
+    -e 's#^TIDAL_INI=.*#TIDAL_INI={T}/ciclo/user.ini#' \\
+    -e 's#^TIDAL_JSON=.*#TIDAL_JSON={T}/ciclo/tmp/tj#' \\
+    -e 's#^CACERT_SD=.*#CACERT_SD={T}/ciclo/nao.pem#' \\
+    -e 's#^AGORA=0#AGORA=1#' \\
+    -e 's#^REDE_NO_TIDAL=.*#REDE_NO_TIDAL=1#' \\
+    -e 's#^RAPIDO=15#RAPIDO=2#' -e 's#^ASSENTAR=5#ASSENTAR=1#' \\
+    -e 's#^CALMA=20#CALMA=4#' -e 's#^LENTO=60#LENTO=2#' \\
+    {p} > {T}/ciclo/rs
+chmod 755 {T}/ciclo/rs
+
+busybox ash {T}/ciclo/rs &
+PID=$!
+
+# --- o roteiro -------------------------------------------------------------
+# 101 toca inteira (dur 40) e ainda REPETE: 45s no mesmo id = 1 execucao
+# fechada pela repeticao + o resto.
+sleep 45
+# 102 entra e e pulada logo (menos de 25s: nao deve gerar linha nenhuma).
+echo 102 > {T}/ciclo/ctrltid
+sleep 8
+# 103 entra e toca inteira.
+echo 103 > {T}/ciclo/ctrltid
+sleep 45
+# o audio PARA: e aqui que os pendentes, se houver, sao resolvidos.
+printf 'pcm=0\\n\\n' > {T}/ciclo/ctrl
+sleep 20
+kill -TERM $PID 2>/dev/null
+sleep 2
+
+echo "=== FILA POR FAIXA ==="
+for id in 101 102 103; do
+    echo "id$id=$(grep -c "tidal:$id" {T}/ciclo/scrobble/fila.tsv 2>/dev/null)"
+done
+echo "=== LINHAS REPETIDAS (mesmo id E mesmo inicio) ==="
+echo "DUPES=$(grep '^p1' {T}/ciclo/scrobble/fila.tsv 2>/dev/null \\
+    | awk -F'\\t' '{{print $10 "|" $11}}' | sort | uniq -d | wc -l)"
+echo "=== ANUNCIOS ==="
+echo "ANUN=$(grep -c 'tocando agora (tidal)' {T}/ciclo/tmp/log 2>/dev/null)"
+echo "=== PENDENTES QUE SOBRARAM ==="
+echo "PEND=$(wc -l < {T}/ciclo/scrobble/tidal_pend 2>/dev/null || echo 0)"
+"""
+res22 = r.posix_script(script22, name="daemon-ciclo-tidal", mutating=False,
+                       quiet=True, timeout=240)
+print("\n".join("   " + l for l in res22.stdout.splitlines()[:12]))
+
+_101 = _num(res22.stdout, "id101")
+_102 = _num(res22.stdout, "id102")
+_103 = _num(res22.stdout, "id103")
+_dupes = _num(res22.stdout, "DUPES")
+_anun = _num(res22.stdout, "ANUN")
+
+check("nenhuma linha da fila e copia de outra",
+      _dupes == 0,
+      f"{_dupes} par(es) id+inicio repetidos — cada um vira um scrobble falso "
+      f"no perfil de quem usa")
+check("a faixa que tocou e repetiu entrou mais de uma vez, e nao dez",
+      1 <= _101 <= 2, f"id 101 entrou {_101} vezes (esperado 1 ou 2)")
+check("a faixa pulada entrou UMA vez, como pulo",
+      _102 <= 1,
+      f"id 102 entrou {_102} vezes")
+# Ela ENTRA, e isso e proposital: e o que alimenta a coluna "skipped" do
+# relatorio do cartao, onde o dono do aparelho ve o que pulou. O minimo de 25s
+# mora no tidal_pendurar, e o que ele evita e gastar uma CONSULTA A REDE com
+# uma faixa pulada — quando os dados ja estao em maos, registrar nao custa
+# nada. A regra dos 90% e quem impede o scrobble de subir.
+check("a faixa inteira seguinte entrou uma vez",
+      1 <= _103 <= 2, f"id 103 entrou {_103} vezes (esperado 1 ou 2)")
+check("houve anuncio, e nao um por volta do laco",
+      1 <= _anun <= 4,
+      f"{_anun} anuncios em ~2 minutos — abaixo de 1 e o recurso morto, "
+      f"acima de 4 e abuso da API")
+
+
+print()
+print("=" * 74)
 print("FALHAS:", falhas if falhas else "nenhuma")
 sys.exit(1 if falhas else 0)
