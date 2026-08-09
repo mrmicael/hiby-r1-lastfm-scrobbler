@@ -1681,6 +1681,8 @@ print("=" * 74)
 #
 # Regra do teste: cada faixa entra na fila exatamente o numero de vezes que
 # foi tocada. Nem uma a menos, nem uma a mais.
+# A porta do servidor HTTPS de mentira. Alta, para nao precisar de root.
+PORTA_FALSA = 8443
 CENARIO = r"""#!/bin/sh
 case "$1" in
 estado)  cat CTRL 2>/dev/null ;;
@@ -1690,81 +1692,132 @@ buscar)  exit 1 ;;
 *)       exec REAL "$@" ;;
 esac
 """
-script22 = f"""
-pkill -f "{T}/ciclo/rs" 2>/dev/null || true
+def cenario_tidal(pasta, com_ajudante):
+    """Roda o ciclo inteiro e devolve a saida.
+
+    `com_ajudante` decide se o r1net e posto no lugar. O MESMO roteiro tem de
+    dar o MESMO resultado nos dois casos: e essa igualdade que prova que ligar
+    o ajudante nao muda o que chega na fila nem no perfil de ninguem.
+    """
+    # Com o ajudante, as requisicoes vao para um servidor HTTPS LOCAL — o
+    # testes/servidor_falso.py — e nao para a internet.
+    #
+    # A primeira versao deste teste nao fazia isso, e o resultado foi um falso
+    # alarme caro: com o curl falso as respostas eram forjadas, com o ajudante
+    # as requisicoes batiam no Tidal de verdade e levavam 401 por causa do
+    # token de mentira. Os dois lados nao estavam sendo comparados nas mesmas
+    # condicoes, e o teste acusou o ajudante de quebrar tudo.
+    #
+    # O certificado do servidor local e gerado na hora e entregue ao r1net como
+    # pacote de confianca — entao a validacao continua ligada e sendo testada,
+    # so que contra um servidor que nos controlamos.
+    aj = f"cp $HOME/.cache/r1tls/r1net {T}/{pasta}/scrobble/r1net && " \
+         f"chmod 755 {T}/{pasta}/scrobble/r1net" if com_ajudante else "true"
+    cert = f"cp {T}/{pasta}/cert-do-servidor.pem" if com_ajudante \
+        else "echo cert >"
+    # O servidor sobe ANTES do certificado ser copiado: e ele quem o gera.
+    srv = (
+        f"python3 {r.to_posix_path(os.path.dirname(os.path.abspath(__file__)))}"
+        f"/servidor_falso.py {PORTA_FALSA} "
+        f"{T}/{pasta}/cert-do-servidor.pem > {T}/{pasta}/servidor.log 2>&1 &\n"
+        f"SRV=$!\n"
+        f"_i=0\n"
+        f"while [ $_i -lt 60 ] && ! grep -q PRONTO {T}/{pasta}/servidor.log "
+        f"2>/dev/null; do sleep 0.5; _i=$((_i + 1)); done\n"
+        f"grep -q PRONTO {T}/{pasta}/servidor.log || "
+        f"echo 'SERVIDOR NAO SUBIU'\n"
+    ) if com_ajudante else ""
+    srv_fim = "kill $SRV 2>/dev/null || true\n" if com_ajudante else ""
+    # O `resolver` do daemon passa a apontar para o servidor local, com porta.
+    # E o mesmo mecanismo do --resolve do curl, que o daemon ja usa em
+    # producao para nao depender do DNS do curl estatico.
+    aponta = (
+        "    -e 's#^resolver() {#resolver() { "
+        f"echo 127.0.0.1:{PORTA_FALSA}; return 0; #' \\\n"
+        if com_ajudante else ""
+    )
+    script22 = f"""
+pkill -f "{T}/{pasta}/rs" 2>/dev/null || true
+pkill -f "{T}/{pasta}/scrobble/r1net" 2>/dev/null || true
 sleep 1
-rm -rf {T}/ciclo; mkdir -p {T}/ciclo/scrobble {T}/ciclo/tmp
-cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/ciclo/scrobble/real
-chmod 755 {T}/ciclo/scrobble/real
-cat > {T}/ciclo/scrobble/r1collect <<'FIMC'
-{CENARIO.replace("CTRLTID", T + "/ciclo/ctrltid")
-        .replace("CTRL", T + "/ciclo/ctrl")
-        .replace("REAL", T + "/ciclo/scrobble/real")}
+rm -rf {T}/{pasta}; mkdir -p {T}/{pasta}/scrobble {T}/{pasta}/tmp
+cp {r.to_posix_path(os.path.join(WORK, 'r1collect'))} {T}/{pasta}/scrobble/real
+chmod 755 {T}/{pasta}/scrobble/real
+cat > {T}/{pasta}/scrobble/r1collect <<'FIMC'
+{CENARIO.replace("CTRLTID", f"{T}/{pasta}/ctrltid")
+        .replace("CTRL", f"{T}/{pasta}/ctrl")
+        .replace("REAL", f"{T}/{pasta}/scrobble/real")}
 FIMC
 # O curl falso: responde tudo, mas CAI nas chamadas 3 e 4 ao Last.fm, para
 # exercitar a falha passageira no meio do cenario.
-cat > {T}/ciclo/scrobble/curl <<'FIMCURL'
+cat > {T}/{pasta}/scrobble/curl <<'FIMCURL'
 #!/bin/sh
 url=""; alvo=""
 while [ $# -gt 0 ]; do
     case "$1" in -o) alvo=$2; shift ;; http*) url=$1 ;; esac
     shift
 done
-echo "$url" >> {T}/ciclo/curl.log
+echo "$url" >> {T}/{pasta}/curl.log
 case "$url" in
     *sessions*) echo '{{"countryCode":"BR","x":"y"}}'; exit 0 ;;
     *tracks/*)  [ -n "$alvo" ] && echo '{{"t":1}}' > "$alvo"; exit 0 ;;
 esac
-n=$(grep -c audioscrobbler {T}/ciclo/curl.log)
+n=$(grep -c audioscrobbler {T}/{pasta}/curl.log)
 if [ "$n" = 3 ] || [ "$n" = 4 ]; then exit 7; fi
 exit 0
 FIMCURL
 # Cada faixa tem duracao 40: curta o bastante para a repeticao acontecer
 # dentro do teste, longa o bastante para passar do minimo de 25s.
-cat > {T}/ciclo/scrobble/r1send <<'FIMSEND'
+cat > {T}/{pasta}/scrobble/r1send <<'FIMSEND'
 #!/bin/sh
 case "$1" in
 tidalinfo) printf 'Artista\\nFaixa\\nAlbum\\n40\\n' ;;
 agora)     printf 'corpo\\n' > "$5" ;;
+# 3 = "nao ha nada para enviar". Sem isto os dois caminhos divergem por um
+# motivo que nao interessa a este teste: o curl falso ignora um arquivo de
+# corpo que nao existe e sai com zero, enquanto o ajudante — corretamente —
+# reclama que nao conseguiu ler o corpo.
+preparar)  exit 3 ;;
 esac
 exit 0
 FIMSEND
-chmod 755 {T}/ciclo/scrobble/r1collect {T}/ciclo/scrobble/curl \\
-          {T}/ciclo/scrobble/r1send
+chmod 755 {T}/{pasta}/scrobble/r1collect {T}/{pasta}/scrobble/curl \\
+          {T}/{pasta}/scrobble/r1send
 
-cp {r.to_posix_path(WORK)}/sim1.db {T}/ciclo/banco.db
-echo chave > {T}/ciclo/scrobble/sk
-echo seg   > {T}/ciclo/scrobble/segredo
-echo api   > {T}/ciclo/scrobble/apikey
-echo cert  > {T}/ciclo/scrobble/cacert.pem
+cp {r.to_posix_path(WORK)}/sim1.db {T}/{pasta}/banco.db
+echo chave > {T}/{pasta}/scrobble/sk
+echo seg   > {T}/{pasta}/scrobble/segredo
+echo api   > {T}/{pasta}/scrobble/apikey
+{srv}{cert} {T}/{pasta}/scrobble/cacert.pem
+{aj}
 printf 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\n' \\
-    > {T}/ciclo/tat
-echo ini > {T}/ciclo/user.ini
-printf 'pcm=1\\n\\n' > {T}/ciclo/ctrl
-echo 101 > {T}/ciclo/ctrltid
+    > {T}/{pasta}/tat
+echo ini > {T}/{pasta}/user.ini
+printf 'pcm=1\\n\\n' > {T}/{pasta}/ctrl
+echo 101 > {T}/{pasta}/ctrltid
 
-sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/ciclo/scrobble#' \\
-    -e 's#^DB=.*#DB={T}/ciclo/banco.db#' \\
-    -e 's#^DB_INTERNO=.*#DB_INTERNO={T}/ciclo/banco.db#' \\
-    -e 's#^MAIS=.*#MAIS={T}/ciclo/nada.db#' \\
-    -e 's#^CARTOES=.*#CARTOES="{T}/ciclo/sd"#' \\
-    -e 's#^COPIA=.*#COPIA={T}/ciclo/tmp/c.db#' \\
-    -e 's#^PARCIAL=.*#PARCIAL={T}/ciclo/tmp/p.tsv#' \\
-    -e 's#^LOG=.*#LOG={T}/ciclo/tmp/log#' \\
-    -e 's#^TICK=.*#TICK={T}/ciclo/tmp/tick#' \\
-    -e 's#^TRAVA=.*#TRAVA={T}/ciclo/tmp/rodando#' \\
-    -e 's#^TAT=.*#TAT={T}/ciclo/tat#' \\
-    -e 's#^TIDAL_INI=.*#TIDAL_INI={T}/ciclo/user.ini#' \\
-    -e 's#^TIDAL_JSON=.*#TIDAL_JSON={T}/ciclo/tmp/tj#' \\
-    -e 's#^CACERT_SD=.*#CACERT_SD={T}/ciclo/nao.pem#' \\
+sed -e 's#^DIR=/usr/data/scrobble#DIR={T}/{pasta}/scrobble#' \\
+    -e 's#^DB=.*#DB={T}/{pasta}/banco.db#' \\
+    -e 's#^DB_INTERNO=.*#DB_INTERNO={T}/{pasta}/banco.db#' \\
+    -e 's#^MAIS=.*#MAIS={T}/{pasta}/nada.db#' \\
+    -e 's#^CARTOES=.*#CARTOES="{T}/{pasta}/sd"#' \\
+    -e 's#^COPIA=.*#COPIA={T}/{pasta}/tmp/c.db#' \\
+    -e 's#^PARCIAL=.*#PARCIAL={T}/{pasta}/tmp/p.tsv#' \\
+    -e 's#^LOG=.*#LOG={T}/{pasta}/tmp/log#' \\
+    -e 's#^TICK=.*#TICK={T}/{pasta}/tmp/tick#' \\
+    -e 's#^TRAVA=.*#TRAVA={T}/{pasta}/tmp/rodando#' \\
+    -e 's#^TAT=.*#TAT={T}/{pasta}/tat#' \\
+    -e 's#^TIDAL_INI=.*#TIDAL_INI={T}/{pasta}/user.ini#' \\
+    -e 's#^TIDAL_JSON=.*#TIDAL_JSON={T}/{pasta}/tmp/tj#' \\
+    -e 's#^CACERT_SD=.*#CACERT_SD={T}/{pasta}/nao.pem#' \\
     -e 's#^AGORA=0#AGORA=1#' \\
     -e 's#^REDE_NO_TIDAL=.*#REDE_NO_TIDAL=1#' \\
     -e 's#^RAPIDO=15#RAPIDO=2#' -e 's#^ASSENTAR=5#ASSENTAR=1#' \\
     -e 's#^CALMA=20#CALMA=4#' -e 's#^LENTO=60#LENTO=2#' \\
-    {p} > {T}/ciclo/rs
-chmod 755 {T}/ciclo/rs
+{aponta}    {p} > {T}/{pasta}/rs
+chmod 755 {T}/{pasta}/rs
 
-busybox ash {T}/ciclo/rs &
+busybox ash {T}/{pasta}/rs &
 PID=$!
 
 # --- o roteiro -------------------------------------------------------------
@@ -1772,59 +1825,100 @@ PID=$!
 # fechada pela repeticao + o resto.
 sleep 45
 # 102 entra e e pulada logo (menos de 25s: nao deve gerar linha nenhuma).
-echo 102 > {T}/ciclo/ctrltid
+echo 102 > {T}/{pasta}/ctrltid
 sleep 8
 # 103 entra e toca inteira.
-echo 103 > {T}/ciclo/ctrltid
+echo 103 > {T}/{pasta}/ctrltid
 sleep 45
 # o audio PARA: e aqui que os pendentes, se houver, sao resolvidos.
-printf 'pcm=0\\n\\n' > {T}/ciclo/ctrl
+printf 'pcm=0\\n\\n' > {T}/{pasta}/ctrl
 sleep 20
 kill -TERM $PID 2>/dev/null
 sleep 2
 
 echo "=== FILA POR FAIXA ==="
 for id in 101 102 103; do
-    echo "id$id=$(grep -c "tidal:$id" {T}/ciclo/scrobble/fila.tsv 2>/dev/null)"
+    echo "id$id=$(grep -c "tidal:$id" {T}/{pasta}/scrobble/fila.tsv 2>/dev/null)"
 done
 echo "=== LINHAS REPETIDAS (mesmo id E mesmo inicio) ==="
-echo "DUPES=$(grep '^p1' {T}/ciclo/scrobble/fila.tsv 2>/dev/null \\
+echo "DUPES=$(grep '^p1' {T}/{pasta}/scrobble/fila.tsv 2>/dev/null \\
     | awk -F'\\t' '{{print $10 "|" $11}}' | sort | uniq -d | wc -l)"
 echo "=== ANUNCIOS ==="
-echo "ANUN=$(grep -c 'tocando agora (tidal)' {T}/ciclo/tmp/log 2>/dev/null)"
+echo "ANUN=$(grep -c 'tocando agora (tidal)' {T}/{pasta}/tmp/log 2>/dev/null)"
 echo "=== PENDENTES QUE SOBRARAM ==="
-echo "PEND=$(wc -l < {T}/ciclo/scrobble/tidal_pend 2>/dev/null || echo 0)"
+echo "PEND=$(wc -l < {T}/{pasta}/scrobble/tidal_pend 2>/dev/null || echo 0)"
+echo "=== QUANTAS VEZES O CURL FOI CRIADO ==="
+echo "CURLS=$(wc -l < {T}/{pasta}/curl.log 2>/dev/null || echo 0)"
+pkill -f "{T}/{pasta}/scrobble/r1net" 2>/dev/null || true
+{srv_fim}
 """
-res22 = r.posix_script(script22, name="daemon-ciclo-tidal", mutating=False,
-                       quiet=True, timeout=240)
-print("\n".join("   " + l for l in res22.stdout.splitlines()[:12]))
+    return r.posix_script(script22, name=f"daemon-ciclo-{pasta}",
+                          mutating=False, quiet=True, timeout=300)
 
-_101 = _num(res22.stdout, "id101")
-_102 = _num(res22.stdout, "id102")
-_103 = _num(res22.stdout, "id103")
-_dupes = _num(res22.stdout, "DUPES")
-_anun = _num(res22.stdout, "ANUN")
 
-check("nenhuma linha da fila e copia de outra",
-      _dupes == 0,
-      f"{_dupes} par(es) id+inicio repetidos — cada um vira um scrobble falso "
-      f"no perfil de quem usa")
-check("a faixa que tocou e repetiu entrou mais de uma vez, e nao dez",
-      1 <= _101 <= 2, f"id 101 entrou {_101} vezes (esperado 1 ou 2)")
-check("a faixa pulada entrou UMA vez, como pulo",
-      _102 <= 1,
-      f"id 102 entrou {_102} vezes")
-# Ela ENTRA, e isso e proposital: e o que alimenta a coluna "skipped" do
-# relatorio do cartao, onde o dono do aparelho ve o que pulou. O minimo de 25s
-# mora no tidal_pendurar, e o que ele evita e gastar uma CONSULTA A REDE com
-# uma faixa pulada — quando os dados ja estao em maos, registrar nao custa
-# nada. A regra dos 90% e quem impede o scrobble de subir.
-check("a faixa inteira seguinte entrou uma vez",
-      1 <= _103 <= 2, f"id 103 entrou {_103} vezes (esperado 1 ou 2)")
-check("houve anuncio, e nao um por volta do laco",
-      1 <= _anun <= 4,
-      f"{_anun} anuncios em ~2 minutos — abaixo de 1 e o recurso morto, "
-      f"acima de 4 e abuso da API")
+def conferir_ciclo(saida, rotulo):
+    """As mesmas cobrancas, seja pelo curl ou pelo ajudante."""
+    _101 = _num(saida, "id101")
+    _102 = _num(saida, "id102")
+    _103 = _num(saida, "id103")
+    _dupes = _num(saida, "DUPES")
+    _anun = _num(saida, "ANUN")
+
+    check(f"[{rotulo}] nenhuma linha da fila e copia de outra",
+          _dupes == 0,
+          f"{_dupes} par(es) id+inicio repetidos — cada um vira um scrobble "
+          f"falso no perfil de quem usa")
+    check(f"[{rotulo}] a faixa que repetiu entrou mais de uma vez, e nao dez",
+          1 <= _101 <= 2, f"id 101 entrou {_101} vezes (esperado 1 ou 2)")
+    # A pulada ENTRA, e e proposital: e o que alimenta a coluna "skipped" do
+    # relatorio do cartao. O minimo de 25s mora no tidal_pendurar e serve para
+    # nao gastar CONSULTA A REDE com faixa pulada; registrar, com os dados ja
+    # em maos, nao custa nada. Quem impede o scrobble de subir e a regra dos
+    # 90%.
+    check(f"[{rotulo}] a faixa pulada entrou UMA vez, como pulo",
+          _102 <= 1, f"id 102 entrou {_102} vezes")
+    check(f"[{rotulo}] a faixa inteira seguinte entrou uma vez",
+          1 <= _103 <= 2, f"id 103 entrou {_103} vezes (esperado 1 ou 2)")
+    check(f"[{rotulo}] houve anuncio, e nao um por volta do laco",
+          1 <= _anun <= 4,
+          f"{_anun} anuncios em ~2 minutos — abaixo de 1 e o recurso morto, "
+          f"acima de 4 e abuso da API")
+    return (_101, _102, _103, _dupes)
+
+
+_res_curl = cenario_tidal("ciclo", False)
+
+print("   --- pelo curl:")
+print("\n".join("      " + l for l in _res_curl.stdout.splitlines()[:10]))
+_v_curl = conferir_ciclo(_res_curl.stdout, "curl")
+
+# E agora o MESMO roteiro com o ajudante residente no lugar. Ele so roda se o
+# r1net tiver sido compilado; sem isso o teste diria "passou" sem ter olhado
+# para o caminho que interessa.
+_tem_aj = r.posix_script(
+    '[ -x "$HOME/.cache/r1tls/r1net" ] && [ -s /etc/ssl/certs/ca-certificates.crt ] '
+    '&& echo TEM || echo NAO',
+    name="tem-r1net", mutating=False, quiet=True, timeout=30).stdout
+
+if "TEM" not in _tem_aj:
+    print("   --- pelo ajudante: PULADO (compile com r1lastfm/build_r1net.sh)")
+else:
+    _res_aj = cenario_tidal("cicloaj", True)
+    print("   --- pelo ajudante:")
+    print("\n".join("      " + l for l in _res_aj.stdout.splitlines()[:10]))
+    _v_aj = conferir_ciclo(_res_aj.stdout, "ajudante")
+
+    # A cobranca que realmente importa: ligar o ajudante NAO PODE mudar o que
+    # chega na fila. Foi exatamente isso que quebrou em producao — a fila saiu
+    # diferente, com a mesma faixa tres vezes.
+    check("o ajudante nao muda o que chega na fila",
+          _v_aj == _v_curl,
+          f"curl deu {_v_curl} e o ajudante deu {_v_aj} — o caminho da rede "
+          f"nao pode alterar o resultado")
+    check("e com ele nenhum curl foi criado",
+          _num(_res_aj.stdout, "CURLS") == 0,
+          f"{_num(_res_aj.stdout, 'CURLS')} chamadas ao curl com o ajudante "
+          f"de pe — a rede ainda esta nascendo processo")
 
 
 print()

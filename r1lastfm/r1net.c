@@ -199,12 +199,30 @@ static Host *achar_host(const char *nome)
 static int ligar(Host *h, const char *ip, char *erro, size_t tam_erro)
 {
     int rc;
-    const char *alvo = (ip && ip[0] && strcmp(ip, "-") != 0) ? ip : h->nome;
+    char alvo[160];
+    char porta[8] = "443";
+    char *dp;
 
     if (h->ligado) return 0;
 
+    /* O endereço pode vir como "1.2.3.4" ou como "1.2.3.4:8443". A porta
+     * existe para o teste: ela é o que permite apontar o ajudante para um
+     * servidor local e exercitar o caminho INTEIRO — TLS, HTTP, conexão
+     * guardada — sem depender da internet nem de credenciais de verdade.
+     * Sem isso, o teste com o ajudante só conseguia bater no servidor real,
+     * levar 401, e medir outra coisa. */
+    snprintf(alvo, sizeof(alvo), "%s",
+             (ip && ip[0] && strcmp(ip, "-") != 0) ? ip : h->nome);
+    dp = strrchr(alvo, ':');
+    /* Um ':' no meio de um endereço IPv6 não é separador de porta; só conta
+     * quando o que vem depois é um número e não há outro ':' antes. */
+    if (dp && strchr(alvo, ':') == dp && dp[1] >= '0' && dp[1] <= '9') {
+        snprintf(porta, sizeof(porta), "%s", dp + 1);
+        *dp = 0;
+    }
+
     mbedtls_net_init(&h->net);
-    rc = mbedtls_net_connect(&h->net, alvo, "443", MBEDTLS_NET_PROTO_TCP);
+    rc = mbedtls_net_connect(&h->net, alvo, porta, MBEDTLS_NET_PROTO_TCP);
     if (rc != 0) {
         snprintf(erro, tam_erro, "conexao %d", rc);
         return -1;

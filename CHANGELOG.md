@@ -1,5 +1,59 @@
 # Changes since the last release
 
+## Device version 25 — the network stops creating things mid-playback
+
+The resident helper is connected. `r1net` starts with the daemon, while the
+device still has 22 MB free, and pays every expensive cost once: reading the
+certificate bundle, seeding the random generator, building the TLS contexts.
+After that, sending a request is writing a line to a descriptor that is
+already open, on a connection that is already negotiated — no fork, no exec,
+no socket, no handshake.
+
+| | |
+|---|---|
+| program | **421 KB** (curl is 1,643,940 bytes) |
+| resident | **688 KB**, and it does not grow between requests |
+| processes created per request | **zero** |
+
+### Why this took four attempts
+
+Wiring it in broke a real device three times: the announcement firing every 15
+seconds, the announcement never firing again after one transient failure, and
+the same track entering the queue three times — which put false scrobbles on
+someone's profile.
+
+So it is connected only behind a test that runs a whole listening cycle
+**twice** — once through `curl`, once through the helper — with repeats, a
+track change, a transient network failure and pending lookups all happening
+together, and then counts the queue lines per track. The check that matters is
+that the two queues come out identical:
+
+```
+OK  the helper does not change what reaches the queue
+    curl gave (2, 1, 2, 0) and the helper gave (2, 1, 2, 0)
+OK  and no curl was created
+    0 curl invocations with the helper up
+```
+
+It needs `testes/servidor_falso.py`, a local HTTPS server that generates its
+own certificate — so the helper's certificate validation is exercised rather
+than switched off.
+
+Building that test caught three faults in the bench itself before it caught
+anything else: comparing forged responses against the real internet, a
+malformed `sed` that produced an empty daemon, and JSON formatted differently
+from what the real APIs send. Each of those would otherwise have been
+installed on a device and read as a scrobbler bug.
+
+### And one real fault it found
+
+The country code was read from Tidal's reply with `cut -d: -f2`, which only
+works while `countryCode` is not the last field of the JSON. The shape of that
+reply is not ours to control; if it ever changed, Tidal metadata would stop
+resolving — silently. It now ignores anything that is not a letter.
+
+---
+
 ## Device version 23 — the crash was ours, and the kernel said so
 
 Six versions of guessing ended the moment the kernel log of a real freeze was
@@ -40,24 +94,6 @@ instant of the announcement. It was never `curl`.
 **The fix:** the queue grows as it fills, starting at 32 entries, and the text
 fields are 256 bytes instead of 512 (still double what Last.fm accepts). Ten
 tracks now cost 21 KB.
-
-### A resident network helper, built but not wired up
-
-`r1net` ships in this release as a program and a build script, and nothing
-uses it yet. It starts, parses the certificate bundle and builds its TLS
-contexts once, then sits on a fifo with the connection to Last.fm held open, so
-sending a request becomes writing a line to an already-open descriptor — no
-process created at all. Measured on the device: 421 KB of program against
-curl's 1,643,940 bytes, 688 KB resident, and the resident size does not grow
-between requests.
-
-It is not connected to the daemon because wiring it in produced three
-regressions in a row on a real device — the announcement firing every 15
-seconds, the announcement never firing again after one transient failure, and
-duplicate entries in the queue. The program is sound; the integration was not
-tested against a full cycle before being installed, and that is the mistake.
-It gets connected when there is a test that exercises track changes, network
-failures and repeats first.
 
 ---
 

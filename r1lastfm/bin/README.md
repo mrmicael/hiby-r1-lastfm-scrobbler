@@ -20,6 +20,17 @@ and still 876 KB after the fourth.** Requests cost nothing after the first.
 `curl`, which it replaces for this path, is 1,643,940 bytes on disk and peaked
 at 896 KB of *fresh* allocation on every single invocation.
 
+Wiring it into the daemon produced three regressions in a row on a real
+device: the announcement firing every 15 seconds, the announcement never
+firing again after one transient failure, and duplicate entries in the queue.
+So it is connected only behind a test that runs a whole listening cycle
+**twice** — once through `curl`, once through the helper — and requires the
+two queues to come out identical. That test is section 15 of
+[`t_daemon.py`](../../testes/t_daemon.py), and it needs
+[`servidor_falso.py`](../../testes/servidor_falso.py): a local HTTPS server
+that generates its own certificate, so the helper's TLS validation is
+exercised rather than switched off.
+
 ## Why they are here
 
 Compiling them needs Zig, and on Windows that needs WSL — which turns
@@ -57,7 +68,7 @@ behind the same button as the other two.
 ```
 66d34da103db1b658c7713ca0032536805ba6c29f99bbb8807774f796538cb21  r1collect
 b4ddb81cd5221230b14f30d90f0dffb6ab715420a82d1163fa3afd8cbaf10521  r1send
-1839bc892d86f55f537f65ee6eb250bea217b3482b4f580ca4b68a2f9b0e8938  r1net
+45fb9d9ee6f654eee01a8374ab32dcfe2fd22ecbf800fdba9880e95f6081bf6b  r1net
 ```
 
 Built with Zig 0.16.0. Note that a rebuild will not necessarily match these

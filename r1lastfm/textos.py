@@ -1400,6 +1400,42 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.25": {
+        "en": "going to the network no longer creates anything while music "
+              "plays. The resident helper (r1net) is now connected: it starts "
+              "with the daemon, when the device has 22 MB free, and does all "
+              "the expensive work once — reading the certificate bundle, "
+              "seeding the random generator, building the TLS contexts. After "
+              "that, sending a request is writing a line to a descriptor that "
+              "is already open, on a connection that is already negotiated. "
+              "No fork, no exec, no socket, no handshake. It is 421 KB "
+              "against curl's 1.6 MB, and it holds 688 KB resident that does "
+              "not grow between requests. Wiring it in had broken this device "
+              "three times before, so it is connected behind a test that runs "
+              "a whole listening cycle twice — once through curl, once "
+              "through the helper — and demands the two queues come out "
+              "identical. That test also found a real fault that had nothing "
+              "to do with the helper: the country code was read from Tidal's "
+              "reply in a way that only worked while that field was not the "
+              "last one, and the reply's shape is not ours to control",
+        "pt": "ir a rede deixou de criar qualquer coisa enquanto a musica "
+              "toca. O ajudante residente (r1net) esta ligado: ele sobe junto "
+              "com o daemon, quando o aparelho tem 22 MB livres, e faz ali "
+              "tudo o que e caro — ler o pacote de certificados, semear o "
+              "gerador aleatorio, montar os contextos de TLS. Depois disso, "
+              "mandar um pedido e escrever uma linha num descritor que ja "
+              "esta aberto, numa conexao ja negociada. Sem fork, sem exec, "
+              "sem socket, sem handshake. Sao 421 KB contra 1,6 MB do curl, e "
+              "ele fica com 688 KB residentes que nao crescem entre um pedido "
+              "e outro. Liga-lo ja tinha quebrado este aparelho tres vezes, "
+              "entao ele so entra atras de um teste que roda um ciclo inteiro "
+              "de escuta duas vezes — uma pelo curl, outra pelo ajudante — e "
+              "exige que as duas filas saiam identicas. Esse teste ainda "
+              "achou um defeito de verdade, sem relacao com o ajudante: o "
+              "codigo do pais era lido da resposta do Tidal de um jeito que "
+              "so funcionava enquanto aquele campo nao fosse o ultimo, e o "
+              "formato da resposta nao e nosso para controlar",
+    },
     "novidade.24": {
         "en": "the Tidal \"now playing\" is on again. It was turned off in "
               "version 22 because the device kept freezing and the reason was "
