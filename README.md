@@ -369,7 +369,7 @@ use Wi-Fi, you are done**: listen to music, plug in when you feel like it, click
 
 In card 4, in this order:
 
-1. **Build curl** — 20 to 30 minutes, once per machine. It downloads the curl
+1. **Build curl** — 20 seconds to 2 minutes, once per machine. It downloads the curl
    and Mbed-TLS sources from both projects' official sites and cross-compiles
    them for the R1's MIPS, on your computer.
 2. **Download certificates** — the root bundle published by the curl project.
