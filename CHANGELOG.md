@@ -41,6 +41,37 @@ Measured over a six-track cycle: **1 `/v1/sessions` call, down from 6** — 12
 requests to 7, approaching half over a longer session. Every one of those was
 a full TLS handshake on a device with under 2 MB free.
 
+### The same release also unblocked "now playing"
+
+Reported from the device: *"now playing just stops showing up, especially on
+Tidal."* The first guess — the new OOM marking was getting `r1net` killed —
+was **wrong**: `r1net morreu` appeared zero times in the log. The helper was
+never killed once.
+
+The pending-track queue was jammed at the head. Two Tidal ids that answer 404
+had been sitting at the front since around midday, and the resolver only ever
+reads the first line. That alone would just delay scrobbles. The damage came
+from a shared clock:
+
+| line | what it did |
+|---|---|
+| 1582 | pending track fails → `tid_tentar = now + 60` |
+| 1761 | **currently playing** track → `[ $t_agora -lt $tid_tentar ] && return 0` |
+
+So a dead entry armed a 60-second embargo that silenced the announcement for
+the song actually playing — then failed again a minute later and re-armed it.
+The silence never ended. This predates version 29; what changed that day was
+two unresolvable ids entering the queue.
+
+Fixed: a 404 leaves the queue immediately instead of holding the head for five
+retries; the queue gets its own clock (`tid_pend_tentar`); a failed track no
+longer discards the cached country; and `kill -0` confirms before the helper
+is declared dead, so one unlucky `/proc` read cannot mute the network until
+the next pause.
+
+Watched live on the device: the queue drained 6 → 0, and all four real tracks
+behind the jam resolved and scrobbled on the first try.
+
 ---
 
 ## Device version 28 — two things measurement caught that reasoning missed

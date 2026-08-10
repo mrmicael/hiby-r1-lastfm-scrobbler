@@ -1417,7 +1417,13 @@ TEXTOS: dict[str, dict[str, str]] = {
               "fetched again for EVERY track — the value was saved inside a "
               "subshell and thrown away on the way out, so the cache never "
               "worked a single time. Measured: one query for six tracks, where "
-              "there used to be six",
+              "there used to be six. And 'now playing' stops going missing on "
+              "Tidal: a track the catalogue answers 404 for used to sit at the "
+              "head of the pending queue and, on every failure, arm a "
+              "60-second pause that silenced the announcement for the song "
+              "actually playing — then fail again a minute later and re-arm "
+              "it, forever. A 404 now leaves the queue at once, and the queue "
+              "no longer shares its clock with the track in your ears",
         "pt": "quando a memoria acaba, quem morre e o scrobbler, nao a musica. "
               "O R1 nao tem swap, e com audio tocando sobra pouco mais de um "
               "megabyte; ai o kernel mata o maior processo, que e o player. O "
@@ -1433,7 +1439,14 @@ TEXTOS: dict[str, dict[str, str]] = {
               "precisa informar uma vez, estava sendo buscado de novo a CADA "
               "faixa — o valor era guardado dentro de um subshell e jogado "
               "fora na volta, entao o cache nunca funcionou uma vez sequer. "
-              "Medido: uma consulta para seis faixas, onde antes eram seis",
+              "Medido: uma consulta para seis faixas, onde antes eram seis. E "
+              "o 'tocando agora' para de sumir no Tidal: uma faixa que o "
+              "catalogo responde 404 ficava entalada na cabeca da fila de "
+              "pendencias e, a cada falha, armava uma pausa de 60 segundos "
+              "que calava o anuncio da musica que estava tocando — e tornava "
+              "a falhar um minuto depois, rearmando, para sempre. Agora o 404 "
+              "sai da fila na hora, e a fila nao divide mais o relogio com a "
+              "faixa que esta no seu ouvido",
     },
     "novidade.28": {
         "en": "two fixes found by measuring instead of assuming. The first: "

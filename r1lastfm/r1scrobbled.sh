@@ -941,8 +941,12 @@ conferir_ajudante() {
     _aj_est=""
     read -r _aj_p _aj_nome _aj_est _aj_resto < "/proc/$aj_pid/stat" 2>/dev/null
     case "$_aj_est" in
-        "" | Z) ;;          # sumiu de vez, ou morto esperando ser recolhido
-        *)      return 0 ;; # vivo
+        Z)  ;;              # morto, esperando ser recolhido
+        # O /proc não abriu. Pode ser o processo que sumiu — ou uma leitura que
+        # falhou por um instante. Dar um vivo por morto cala a rede até a
+        # próxima pausa, que é caro demais para um palpite: o kill -0 confirma.
+        "") kill -0 "$aj_pid" 2>/dev/null && return 0 ;;
+        *)  return 0 ;;     # vivo
     esac
 
     # Recolhe o zumbi. Ele já morreu, então isto retorna na hora e não bloqueia.
@@ -1368,6 +1372,9 @@ escrever_cabecalho_tidal() {
 # Metadados de uma faixa. Preenche tid_art / tid_tit / tid_alb / tid_dur.
 tidal_meta() {
     tid_art=""; tid_tit=""; tid_alb=""; tid_dur=0
+    # Zerado a cada chamada: quem lê isto precisa saber se ESTE pedido levou
+    # 404, e não se algum pedido anterior levou.
+    tid_meta_404=0
     [ -x "$CURL" ] && [ -x "$REMETENTE" ] || return 1
     tem_rede || return 1
     t_ca=$(cacert); [ -n "$t_ca" ] || return 1
@@ -1386,7 +1393,7 @@ tidal_meta() {
         _rcm=$?
         rm -f "$CAB_TIDAL"
         case "$_rcm" in
-            0) _feito=1 ;;
+            0) _feito=1; [ "$http_codigo" = 404 ] && tid_meta_404=1 ;;
             # 3 = sem memória para rede agora. Cair para o curl aqui seria
             # criar um processo de 1,6 MB no momento em que o kernel acabou
             # de matar alguém por falta de memória.
@@ -1562,7 +1569,7 @@ tidal_resolver() {
 
     tem_memoria || { _devolver; return 0; }
     tem_rede    || { _devolver; return 0; }
-    [ "$t_agora" -lt "$tid_tentar" ] 2>/dev/null && { _devolver; return 0; }
+    [ "$t_agora" -lt "$tid_pend_tentar" ] 2>/dev/null && { _devolver; return 0; }
     tid_rede_ok=0
 
     if tidal_meta "$_pid"; then
@@ -1574,12 +1581,32 @@ tidal_resolver() {
         return 0
     fi
 
-    # Rede fora do ar, token trocado, faixa que saiu do catálogo: tenta de novo
-    # daqui a um minuto. A faixa não se perde — ela fica no arquivo, que está
-    # em /usr/data e sobrevive até a um desligamento.
+    # 404 é definitivo: o catálogo do Tidal não conhece este id, e repetir não
+    # muda a resposta. Sai da fila agora, em vez de ocupar a cabeça dela por
+    # cinco tentativas. Num R1 de verdade, duas faixas mortas represaram
+    # quatro reais por onze horas exatamente aqui.
+    if [ "$tid_meta_404" = 1 ]; then
+        registrar "tidal: o catalogo nao conhece a faixa $_pid (404); tirei da fila"
+        tid_falhas=0
+        tidal_desempilhar
+        _devolver
+        return 0
+    fi
+
+    # Rede fora do ar ou token trocado: tenta de novo daqui a um minuto. A
+    # faixa não se perde — ela fica no arquivo, que está em /usr/data e
+    # sobrevive até a um desligamento.
+    #
+    # O relógio é SÓ desta fila. Enquanto ele era o mesmo `tid_tentar` da faixa
+    # em curso, uma pendência que falhava armava um embargo de 60 s que calava
+    # o "tocando agora" da música que estava tocando — e como ela tornava a
+    # falhar no minuto seguinte, o embargo nunca terminava. O sintoma era
+    # justamente este: o "tocando agora" simplesmente parava de aparecer.
+    #
+    # O país também não é mais jogado fora aqui: ele não tem nada com a faixa
+    # ter falhado, e descartá-lo custava um /v1/sessions inteiro por tentativa.
     tid_falhas=$((tid_falhas + 1))
-    tid_pais=""
-    tid_tentar=$((t_agora + 60))
+    tid_pend_tentar=$((t_agora + 60))
     if [ "$tid_falhas" -ge 5 ]; then
         # Cinco tentativas e nada: esta faixa não vai resolver, e segurá-la
         # trancaria todas as outras atrás dela.
@@ -1988,6 +2015,9 @@ tid_anunciado=0
 # Consultas seguidas que falharam para a faixa da frente da fila de pendentes.
 tid_falhas=0
 tid_tentar=0
+# O relógio da fila de pendências, separado de propósito do da faixa em curso.
+tid_pend_tentar=0
+tid_meta_404=0
 # Tentativas do "tocando agora" da faixa em curso, e quando repetir.
 tid_tent_anuncio=0
 tid_reanuncio=0
