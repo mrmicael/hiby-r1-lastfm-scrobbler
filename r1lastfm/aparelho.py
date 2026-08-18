@@ -68,10 +68,10 @@ LANCADOR = "/usr/bin/hiby_player.sh"
 
 # Sobe a cada mudança que valha reinstalar no aparelho. A tela compara com o
 # que está gravado lá e só oferece a atualização quando há diferença.
-VERSAO = 29
+VERSAO = 30
 # As versões que existem. O que cada uma trouxe está no catálogo de textos,
 # sob "novidade.<n>", porque isso aparece na tela e tem de estar traduzido.
-NOVIDADES = (29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+NOVIDADES = (30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
 
 
 def novidade(versao: int) -> str:
@@ -222,9 +222,21 @@ def situacao(adb: Adb) -> Situacao:
         f"echo BANCO=$(cat {BANCO_ATUAL} 2>/dev/null); "
         f"echo VERSAO=$(cat {VERSAO_ARQ} 2>/dev/null || echo 0); "
         f"grep -q '^AGORA=1' {CONF} 2>/dev/null && echo NP=1 || echo NP=0; "
-        # O lançador cita o init.sh? Se não, ninguém nunca vai executá-lo.
-        f"if [ -r {LANCADOR} ]; then "
-        f"  grep -q '{INIT}' {LANCADOR} && echo SUP=1 || echo SUP=0; "
+        # ALGUÉM no caminho de boot cita o init.sh? Se ninguém cita, ninguém
+        # nunca vai executá-lo.
+        #
+        # Antes isto olhava só o {LANCADOR}, e errava feio em mods que trocam o
+        # caminho de boot inteiro: o Hiby-R1-Mod sequestra o script de init para
+        # rodar um lançador próprio, que chama o binário do player direto e
+        # nunca lê o init.sh. O arquivo que a sonda olhava sequer participa do
+        # boot lá, então a resposta era "não sei" — e "não sei" era exibido como
+        # promessa. Quem instalou viu "inicia junto com o player" e nada subia.
+        # Só scripts, nunca `grep -r` no /usr/bin: lá mora o binário do
+        # player, e varrer megabytes a cada atualização de tela deixaria a
+        # janela lenta por uma resposta que cabe em dois globs.
+        f"if ls /etc/init.d/* >/dev/null 2>&1 || ls /usr/bin/*.sh >/dev/null 2>&1; "
+        f"then grep -lF '{INIT}' /etc/init.d/* /usr/bin/*.sh 2>/dev/null "
+        f"| grep -q . && echo SUP=1 || echo SUP=0; "
         f"else echo SUP=?; fi; "
         # rota default: destino 00000000 na segunda coluna do /proc/net/route
         f"awk '$2==\"00000000\"{{achou=1}} END{{print \"WIFI=\" (achou?1:0)}}' "
@@ -526,9 +538,14 @@ def comando_ligar(init: str = INIT) -> str:
     return (
         f"printf '%s\\n' {_aspas(BLOCO)} > {init}.novo; "
         f"[ -f {init} ] || printf '#!/bin/sh\\n' > {init}; "
-        # A linha do primeiro `exit` de nível zero. Um `exit` indentado está
-        # dentro de um if ou de uma função e não termina o script.
-        f"n=$(grep -n '^[[:space:]]*exit' {init} | head -1 | cut -d: -f1); "
+        # A linha do primeiro `exit` de nível zero. `^exit` e não
+        # `^[[:space:]]*exit`: o comentário sempre disse que um `exit`
+        # indentado está dentro de um if ou de uma função, mas o padrão casava
+        # justamente com esses. Num init.sh com `if ...; then exit 0; fi`, o
+        # bloco era inserido DENTRO do condicional — ficava no arquivo, a tela
+        # dizia "inicia junto com o player", e ele só rodava se aquele ramo
+        # rodasse. O comentário estava certo; o padrão é que não o obedecia.
+        f"n=$(grep -n '^exit' {init} | head -1 | cut -d: -f1); "
         f"if [ -n \"$n\" ]; then "
         f"  head -n $((n - 1)) {init} > {init}.tmp; "
         f"  cat {init}.novo >> {init}.tmp; "

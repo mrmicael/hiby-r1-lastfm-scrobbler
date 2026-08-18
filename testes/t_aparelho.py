@@ -149,6 +149,53 @@ check("e realmente executa quando o init.sh roda", "EXECUTOU" in saida
       and "NAO EXECUTOU" not in saida,
       "o bloco existe no arquivo mas nunca roda" if "NAO EXECUTOU" in saida else "")
 check("o init.sh continua valido no busybox ash", "SINTAXE_OK" in saida)
+
+
+# ---------------------------------------------------------------------------
+# O init.sh com um `exit` INDENTADO, dentro de um if que nao roda.
+#
+# O comentario do comando_ligar sempre disse que so o `exit` de nivel zero
+# termina o script, mas o padrao era `^[[:space:]]*exit`, que casa tambem com
+# os indentados. Num arquivo assim o bloco era enfiado DENTRO do condicional:
+# ficava no arquivo, a tela dizia "inicia junto com o player", e ele so rodaria
+# se aquele ramo rodasse. Este teste executa o init.sh de verdade e exige a
+# prova de que o daemon foi chamado.
+INDENTADO = """#!/bin/sh
+if [ -f /isto_nao_existe ]; then
+    exit 0
+fi
+echo fim
+"""
+
+script2 = f"""
+rm -rf {T}; mkdir -p {T}
+cat > {INIT} <<'IEOF'
+{INDENTADO}IEOF
+
+{add}
+
+echo "=== o arquivo depois de acrescentar ==="
+cat -n {INIT}
+
+echo "=== roda mesmo? ==="
+rm -f {T}/PROVA
+sed "s#^\[ -x /usr/data/scrobble/r1scrobbled \].*#touch {T}/PROVA#" {INIT} > {T}/p2.sh
+sh {T}/p2.sh >/dev/null 2>&1
+[ -f {T}/PROVA ] && echo "EXECUTOU" || echo "NAO EXECUTOU"
+
+echo "=== continua valido no shell do R1? ==="
+busybox ash -n {INIT} && echo SINTAXE_OK || echo SINTAXE_RUIM
+"""
+
+res2 = r.posix_script(script2, name="init-sh-exit-indentado", mutating=False,
+                      quiet=True, timeout=90)
+saida2 = res2.stdout
+check("um exit dentro de um if nao engole o bloco",
+      "EXECUTOU" in saida2 and "NAO EXECUTOU" not in saida2,
+      "o bloco foi inserido dentro do condicional: fica no arquivo, a tela "
+      "promete que inicia no boot, e o daemon nunca sobe")
+check("e o init.sh segue valido nesse caso",
+      "SINTAXE_OK" in saida2)
 check("removeu", "NAO" in saida.split("removendo ===")[1][:20])
 check("voltou identico ao original", "IDENTICO" in saida and "DIFERENTE" not in saida)
 check("remover duas vezes nao estraga", "AINDA_IDENTICO" in saida)

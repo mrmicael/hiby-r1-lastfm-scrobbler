@@ -1,5 +1,52 @@
 # Changes since the last release
 
+## Device version 30 — two faults found by someone else's firmware
+
+All of them came from one report: the collector stopped after a reboot, and no
+spreadsheet appeared with the player's database on the SD card. Every one of
+them is ours. The third is documented below and still open.
+
+**An indented `exit` swallowed the boot line.** The installer puts its line
+before the first `exit` in `init.sh`, because a line after `exit 0` sits in the
+file and never runs. The comment always said only a top-level `exit` counts —
+the pattern was `^[[:space:]]*exit`, which matches the indented ones too. Given
+
+```sh
+if [ -f /something ]; then
+    exit 0
+fi
+```
+
+the line landed *inside* the conditional. It was in the file, so the screen
+reported "starts together with the player", and it ran only if that branch ran.
+Now `^exit`, with a test that runs such an `init.sh` for real and demands proof
+the daemon was invoked — verified to fail against the old pattern.
+
+**"Don't know" was displayed as "yes".** The screen decided whether the
+firmware starts the collector by checking a single launcher, `hiby_player.sh`,
+for a mention of `init.sh`. Mods that replace the whole boot path — the
+Hiby-R1-Mod hijacks the init script for its own launcher, which calls the
+player binary directly — leave that file out of the boot path entirely. The
+probe answered "cannot tell", and the screen printed the same cheerful line it
+prints when everything is fine. It now searches every boot script, and says
+plainly when it cannot verify.
+
+**Not fixed here: half an hour blind after every boot.** The daemon looks for
+the SD card at startup and then re-checks every 1800 seconds. It starts from
+`init.sh` before the card finishes mounting, decides there is no writable card,
+and waits thirty minutes — no spreadsheet, and with the player's database on
+the card, nothing collected either. Starting it by hand works because the card
+is mounted by then, which is exactly what the reporter observed.
+
+The obvious change — re-check often until a card appears — costs more than it
+looks: the card search writes a probe file, and the database search spawns
+`r1collect`. Running them every cycle took the idle cost from 2.67 ms to
+5.67 ms per loop, against a 4 ms budget the suite enforces. Three attempts at
+a cheaper version each failed a different way, so it is not in this release.
+The report stands and the fix is still owed.
+
+---
+
 ## Device version 29 — the scrobbler dies so the music does not
 
 The R1 has no swap and no compaction. While audio plays, free memory sits at

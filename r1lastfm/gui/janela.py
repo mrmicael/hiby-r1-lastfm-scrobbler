@@ -433,6 +433,11 @@ class Painel(ttk.Frame):
                 # certo e o coletor nunca subia, sem nenhuma pista do porquê.
                 if s.init_roda is False:
                     partes.append(t("dev.sem_boot"))
+                elif s.init_roda is None and s.no_init:
+                    # Instalado no init.sh, mas sem saber se alguém o executa.
+                    # Prometer "inicia junto com o player" aqui foi o que fez
+                    # alguém perder um dia atrás de um coletor que nunca subia.
+                    partes.append(t("dev.boot_incerto"))
                 else:
                     partes.append(t("dev.boots") if s.no_init
                                   else t("dev.no_boot"))

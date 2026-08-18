@@ -338,6 +338,16 @@ TEXTOS: dict[str, dict[str, str]] = {
     # O aviso que faltava. Sem ele a tela dizia "instalado / parado" e a
     # pessoa ficava tentando descobrir o que tinha feito de errado — quando
     # não era ela: o firmware de fábrica simplesmente não executa o init.sh.
+    # "Não deu para saber" não é "vai funcionar".
+    #
+    # Quando a sonda não consegue ler o caminho de boot, a tela mostrava a
+    # mesma frase otimista de quando tudo está certo. Quem usa um mod que
+    # troca o caminho de boot inteiro via "inicia junto com o player" e nada
+    # subia, sem nenhuma pista. Dizer que não se sabe é pouco, mas é honesto.
+    "dev.boot_incerto": {
+        "en": "could not check whether this firmware starts it at boot",
+        "pt": "nao deu para saber se este firmware o inicia no boot",
+    },
     "dev.sem_boot": {
         "en": "⚠ this firmware will not start it at boot",
         "pt": "⚠ este firmware não o inicia no boot",
@@ -1400,6 +1410,37 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.30": {
+        "en": "two faults a user on a different firmware ran into, both ours. "
+              "First: the line that starts the collector at boot goes before "
+              "the first `exit` in init.sh, but the pattern used also matched "
+              "an INDENTED exit — one inside an `if`. On such a file the line "
+              "landed inside the conditional: present in the file, so the "
+              "screen promised 'starts with the player', and it only ran if "
+              "that branch ran. Second: the screen checked whether one "
+              "specific launcher mentions init.sh, and mods that replace the "
+              "whole boot path made that check answer 'don't know' — which "
+              "was shown as if it were a yes. It now says plainly when it "
+              "cannot tell, and looks at every boot script instead of one "
+              "file. Still open, and honest about it: the daemon can spend "
+              "half an hour after boot without seeing an SD card that mounted "
+              "late, which means no spreadsheet in that window",
+        "pt": "dois defeitos que alguem num firmware diferente encontrou, os "
+              "dois nossos. O primeiro: a linha que inicia o coletor no boot "
+              "vai antes do primeiro `exit` do init.sh, mas o padrao usado "
+              "casava tambem com um exit INDENTADO — de dentro de um `if`. "
+              "Num arquivo assim a linha caia dentro do condicional: ficava "
+              "no arquivo, entao a tela prometia 'inicia junto com o player', "
+              "e ela so rodava se aquele ramo rodasse. O segundo: a tela "
+              "conferia se um lancador especifico cita o init.sh, e mods que "
+              "trocam o caminho de boot inteiro faziam essa conferencia "
+              "responder 'nao sei' — que era exibido como se fosse um sim. "
+              "Agora ela diz claramente quando nao da para saber, e olha "
+              "todos os scripts de boot em vez de um arquivo so. Em aberto, e "
+              "dito com todas as letras: o daemon pode passar meia hora apos "
+              "o boot sem enxergar um cartao que montou depois, e nessa "
+              "janela nao ha planilha",
+    },
     "novidade.29": {
         "en": "when memory runs out, the scrobbler dies instead of the music. "
               "The R1 has no swap, and while audio plays there is barely a "
