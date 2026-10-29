@@ -1,5 +1,40 @@
 # Changes since the last release
 
+## Device version 31 — faster, lighter, 60%
+
+**New tracks noticed in about 2 s.** The loop used to sleep its whole interval
+(15 s playing, 60 s idle) and only then look. The player writes its database
+the moment a track starts — measured on a real R1: zero writes in 90 s of one
+track playing, one write on each skip. The wait is now sliced into 2-second
+pieces that run `[ "$DB" -nt marker ]`, a shell built-in: no process. A change
+wakes the loop at once. A burst guard allows at most one early wake per 20 s,
+in case some firmware writes the database during playback.
+
+**Lighter.** Since a track change now wakes the loop by itself, the idle
+interval went from 60 s to 120 s — half the idle cycles.
+
+**60% to scrobble, no margin.** Was 90% with a 10-point margin for natural
+endings and uncertain measurements. At 60% that margin would have dropped the
+floor to 50% and reopened a reported bug — a skip that looked like a natural
+ending, past half, landing on the profile. Someone who listened to the end
+clears 60% with room to spare, so the margin is gone: 60% means 60%. Both
+implementations (`r1send.c`, `lastfm.py`) agree; the boundary tests moved.
+
+**"Now playing" comes back during non-stop listening.** Since v29 the network
+helper is the preferred OOM victim, and once killed it was only restarted when
+audio stopped. Listening to an album without pauses meant no "now playing" for
+the rest of the session — finished tracks still went up later, in the batch
+send. It now restarts with music playing, but only with 12 MB actually
+available and at most once every 5 minutes, so a helper that keeps dying
+cannot turn into a kill-restart loop.
+
+**The player survives, not us.** The daemon sets its own `oom_score_adj` to
+600 at start; every `r1collect` and `r1send` it spawns inherits it. They sit
+behind `r1net` (900) and ahead of the player (0). Losing a collection cycle
+recovers on the next one; losing the player is the music stopping.
+
+---
+
 ## Device version 30 — two faults found by someone else's firmware
 
 All of them came from one report: the collector stopped after a reboot, and no

@@ -26,10 +26,10 @@
  *       isto tem de sair ENQUANTO a faixa toca, e não fica em fila: se não
  *       der para mandar, simplesmente não aconteceu.
  *
- * A faixa precisa durar mais de 30 s e ter sido ouvida quase inteira: 90%
- * dela, ou 4 minutos, o que vier antes. O Last.fm se contenta com metade;
- * aqui a régua é mais alta porque com metade uma faixa largada no meio sobe
- * ao perfil como se tivesse sido ouvida — foi a reclamação de quem usou.
+ * A faixa precisa durar mais de 30 s e ter sido ouvida em boa parte: 60%
+ * dela, ou 4 minutos, o que vier antes — 60% e escolha de quem usa: acima da
+ * metade que o Last.fm pede, abaixo dos 90% que deixavam de fora quem pula o
+ * finalzinho.
  *
  * Quanto tempo foi ouvido vem MEDIDO, no marcador t1: o daemon conta os
  * segundos em que sai som de cada faixa. O intervalo entre uma linha do
@@ -62,20 +62,12 @@ typedef unsigned long long u64;
 #define CHEIA      240
 /* Quanto da faixa é preciso ter ouvido, em porcento.
  *
- * O Last.fm pede metade. Aqui a régua é mais alta de propósito: com metade,
- * uma faixa que você largou no meio sobe para o seu perfil como se você a
- * tivesse ouvido, e foi exatamente essa a reclamação — "pulei e contabilizou
- * como se tivesse escutado toda".
- *
- * E metade tinha um arredondamento a mais: `duracao / 2` em divisão inteira
- * dá 62 para uma faixa de 125 s, e 62 >= 62 passa. Ou seja, 49,6% da faixa
- * contava. A conta agora arredonda para cima, com o `+ 99`.
- *
- * Não são 100% porque trocar de faixa um ou dois segundos antes do fim é o
- * caso normal de quem usa o aparelho — em 100% quase nada subiria. 90% é
- * "ouviu até o fim" na prática, sem ser refém do último segundo.
+ * 60%, escolha de quem usa. O Last.fm aceita metade; 90% — a régua anterior —
+ * deixava de fora quem pula os últimos créditos. A conta arredonda para cima
+ * (`+ 99`): sem isso, 125 s * 60% em divisão inteira daria 75 e passaria com
+ * um segundo a menos que o devido.
  */
-#define MIN_PCT    90
+#define MIN_PCT    60
 /* Tetos da margem que a incerteza da medição concede.
  *
  * O daemon diz, junto com o tempo medido, quanto dele é incerto: uma vez o
@@ -89,7 +81,7 @@ typedef unsigned long long u64;
  * derrube a regra em mais de dez pontos — dos 90% sobra um piso de 80% da
  * faixa tocado, por pior que a medição tenha sido. */
 #define MARGEM_MAX 30L
-#define MARGEM_PCT 10L
+#define MARGEM_PCT 0L
 /* O Last.fm recusa horas com mais de 14 dias; fica uma folga de um dia. */
 #define VELHO      (13 * 86400L)
 /* Antes disto o relógio do aparelho claramente não tinha sido acertado. */

@@ -1410,6 +1410,32 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---------------------------------------------- o que muda entre versões
     # Aparece na tela quando o aparelho está atrasado. Cada linha diz o que o
     # usuário ganha ao atualizar, não o que mudou no código.
+    "novidade.31": {
+        "en": "a new track is now noticed within about 2 seconds instead of "
+              "up to a minute: the player writes its database the moment a "
+              "track starts, and the daemon now watches for that with a "
+              "built-in shell test that costs no process at all. A track "
+              "scrobbles at 60% heard, with no extra margin — 60% means 60%, "
+              "so a skip disguised as a natural ending can't sneak past "
+              "half. 'Now playing' no longer dies for the rest of a session "
+              "when the network helper is killed during non-stop listening: "
+              "it comes back with music playing, but only with real memory "
+              "to spare and at most once every 5 minutes. And the collector "
+              "and everything it starts are now marked to be killed before "
+              "the player if memory runs out, so the music is what survives",
+        "pt": "uma faixa nova agora e percebida em cerca de 2 segundos, e nao "
+              "em ate um minuto: o player grava o banco no instante em que a "
+              "faixa comeca, e o daemon passa a vigiar isso com um teste "
+              "interno do shell, que nao cria processo nenhum. A faixa sobe "
+              "com 60% ouvidos, sem margem extra — 60% e 60%, para um pulo "
+              "disfarcado de fim nao passar da metade. O 'tocando agora' nao "
+              "morre mais pelo resto da sessao quando o ajudante de rede cai "
+              "no meio de um album emendado: ele volta com a musica tocando, "
+              "mas so com memoria de sobra e no maximo uma vez a cada 5 "
+              "minutos. E o coletor, com tudo o que ele cria, passa a ser "
+              "morto antes do player se a memoria acabar — quem sobrevive e "
+              "a musica",
+    },
     "novidade.30": {
         "en": "two faults a user on a different firmware ran into, both ours. "
               "First: the line that starts the collector at boot goes before "

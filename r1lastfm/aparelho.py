@@ -68,10 +68,10 @@ LANCADOR = "/usr/bin/hiby_player.sh"
 
 # Sobe a cada mudança que valha reinstalar no aparelho. A tela compara com o
 # que está gravado lá e só oferece a atualização quando há diferença.
-VERSAO = 30
+VERSAO = 31
 # As versões que existem. O que cada uma trouxe está no catálogo de textos,
 # sob "novidade.<n>", porque isso aparece na tela e tem de estar traduzido.
-NOVIDADES = (30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+NOVIDADES = (31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
 
 
 def novidade(versao: int) -> str:
@@ -300,7 +300,7 @@ def situacao(adb: Adb) -> Situacao:
 
 
 def instalar(adb: Adb, log: Log, coletor_local: str, daemon_local: str, *,
-             rapido: int = 15, lento: int = 60, agora: bool = False,
+             rapido: int = 15, lento: int = 120, agora: bool = False,
              iniciar_no_boot: bool = True,
              remetente_local: str = "") -> None:
     """Põe o coletor no aparelho e (opcionalmente) no boot."""

@@ -121,13 +121,13 @@ check("RAWFEAR: agora sim vai", r["RAWFEAR"]["status"] == "pending",
       r["RAWFEAR"]["status"])
 check("City Walls nao mudou", r["City Walls"]["seconds_heard"] == "322")
 
-# A beirada, que e o que o usuario pediu: parar aos 180 de 202 (89%) NAO
+# A beirada, que e o que o usuario pediu: parar aos 120 de 202 (59%) NAO
 # conta. Antes a regua era metade, e uma faixa largada no meio subia para o
 # perfil como se tivesse sido ouvida inteira.
 fila = (f"b1\t{RF - 60}\n" + p1(3, RF, "Quase", 202) + "\n"
-        + f"f1\t{RF + 180}\n")
+        + f"f1\t{RF + 120}\n")
 r = rodar(fila, "quase")
-check("parar a 89% da faixa nao conta", r["Quase"]["status"] == "skipped",
+check("parar a 59% da faixa nao conta", r["Quase"]["status"] == "skipped",
       f"{r['Quase']['seconds_heard']}s de {r['Quase']['track_seconds']}s "
       f"-> {r['Quase']['status']}")
 
@@ -275,14 +275,14 @@ check("e nao salva um pulo pela metade", r["Pulo"]["status"] == "skipped",
 
 # O PISO DA REGRA. A margem e a incerteza de quem pausou muitas vezes, e uma
 # incerteza grande nao pode virar licenca: ela nunca derruba a regra em mais
-# de dez pontos, entao dos 90% sobra um piso de 80% da faixa tocado.
+# de dez pontos, entao com a regua em 60% a margem e zero: o piso E a regua.
 #
 # A faixa aqui tem 200s de proposito. Acima de uns 267s quem manda e o teto
 # de 240s (a regra dos "quatro minutos" do Last.fm), e nao os 90% — a margem
 # nem chega a ser consultada, e o teste nao estaria testando nada.
 #
 # A fila alega 600s de incerteza: a margem util e 20 (10% de 200), nao 600.
-for medido, esperado in ((159, "skipped"), (160, "pending")):
+for medido, esperado in ((119, "skipped"), (120, "pending")):
     fila = (f"b1\t{INI - 60}\n"
             + p1(90 + medido, INI, f"Piso{medido}", 200) + "\n"
             + t1(90 + medido, medido, 600) + "\n")
@@ -422,10 +422,10 @@ check("acabou sozinha: conta mesmo com a duracao sobrando",
       f"{r['Com silencio no fim']['seconds_heard']}s de 230s -> "
       f"{r['Com silencio no fim']['status']}")
 
-# A MESMA medida, mas interrompida: 201 de 230 nao chega aos 90% e continua
+# Interrompida aos 130 de 230 (56%), abaixo dos 60%: continua
 # sendo pulo. So o fim natural afrouxa a regua.
 fila = (f"b1\t{INI2 - 60}\n" + p1(111, INI2, "Pulada no fim", 230) + "\n"
-        + t1(111, 188) + "\n")
+        + t1(111, 130) + "\n")
 r = rodar(fila, "fimint")
 check("interrompida com a mesma medida continua sendo pulo",
       r["Pulada no fim"]["status"] == "skipped",
@@ -445,7 +445,7 @@ check("mas largar no comeco nao vira escuta",
 # O caso que escapou: entre uma faixa e a proxima ha um instante de silencio,
 # e num pulo o daemon pode pega-lo na volta em que olha — o pulo se disfarca
 # de fim. Com a regua em metade, uma faixa pulada passada a metade subia ao
-# perfil, e foi relatada assim. Com 80% ela nao passa mais.
+# perfil, e foi relatada assim. Com 60% sem margem ela nao passa.
 for medido, esperado in ((155, "skipped"), (208, "pending")):
     fila = (f"b1\t{INI2 - 60}\n"
             + p1(120 + medido, INI2, f"Pulo{medido}", 260) + "\n"
@@ -473,8 +473,8 @@ CASOS = [
     ("na_regua",    p1(70, INI, "Quase", 300),          t1(70, 268, 15)),
     ("pulo",        p1(71, INI, "Pulo", 300),           t1(71, 150, 60)),
     ("sem_medida",  p1(72, INI, "Sem t1", 300),         ""),
-    ("piso_baixo",  p1(73, INI, "Piso baixo", 200),     t1(73, 159, 600)),
-    ("piso_alto",   p1(74, INI, "Piso alto", 200),      t1(74, 160, 600)),
+    ("piso_baixo",  p1(73, INI, "Piso baixo", 200),     t1(73, 119, 600)),
+    ("piso_alto",   p1(74, INI, "Piso alto", 200),      t1(74, 120, 600)),
     ("curta",       p1(75, INI, "Curta", 60),           t1(75, 50, 600)),
 ]
 for nome, linha_p1, linhas_t1 in CASOS:

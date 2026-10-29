@@ -46,25 +46,21 @@ BATCH = 50
 
 # O que conta como uma execução.
 #
-# O Last.fm pede metade da faixa, ou 4 minutos, o que vier antes. Aqui a régua
-# é mais alta de propósito: com metade, uma faixa largada no meio sobe para o
-# perfil como se tivesse sido ouvida, e foi essa a reclamação — "pulei e
-# contabilizou como se tivesse escutado toda".
-#
-# Não são 100% porque trocar de faixa um ou dois segundos antes do fim é o uso
-# normal do aparelho; em 100% quase nada subiria. 90% é "ouviu até o fim" na
-# prática.
+# O Last.fm pede metade da faixa, ou 4 minutos, o que vier antes. Aqui são
+# 60%, escolha de quem usa: acima da metade, para uma faixa largada no meio não
+# subir como ouvida, e abaixo dos 90% de antes, que deixavam de fora quem pula
+# os créditos do fim.
 #
 # Este número tem de ser o MESMO do MIN_PCT no r1send.c: são duas
 # implementações da mesma regra, e o teste diferencial compara as duas.
 MIN_TRACK_SECONDS = 30
 FULL_PLAY_SECONDS = 240
-MIN_PLAY_PERCENT = 90
+MIN_PLAY_PERCENT = 60
 # Tetos da margem que a incerteza da medição concede. Iguais ao MARGEM_MAX e
 # ao MARGEM_PCT do r1send.c, pelo mesmo motivo dos outros números daqui: são
 # duas implementações da mesma regra, e o teste diferencial compara as duas.
 MEASURE_SLACK_MAX = 30
-MEASURE_SLACK_PCT = 10
+MEASURE_SLACK_PCT = 0
 
 
 class LastfmError(InstallerError):
@@ -134,7 +130,7 @@ class Play:
         # taxa e sobra num arquivo com capa e tags, e silencio no fim encurta
         # o medido. Ainda assim e preciso ter ouvido a maior parte: uma faixa
         # aberta e abandonada tambem termina com o audio parado.
-        # Tocou ate o fim sozinha: 80% em vez dos 90%.
+        # Tocou ate o fim sozinha: a regua menos a margem da medicao.
         #
         # O sinal de "acabou sozinha" e bom mas nao e infalivel: entre uma
         # faixa e a proxima ha um instante de silencio, e num pulo o daemon

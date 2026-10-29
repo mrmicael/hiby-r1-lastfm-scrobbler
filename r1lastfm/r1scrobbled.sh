@@ -224,7 +224,7 @@ LOG_SD_MAX=262144
 # Intervalos, em segundos. RAPIDO vale enquanto há atividade; depois de
 # QUIETOS ciclos sem nada o laço passa para LENTO.
 RAPIDO=15
-LENTO=60
+LENTO=120
 QUIETOS=8
 
 # Quantos segundos esperar depois de o banco mudar antes de lê-lo.
@@ -808,12 +808,49 @@ if mkfifo "$TICK" 2>/dev/null && (exec 9<>"$TICK") 2>/dev/null; then
     fi
 fi
 
+# A espera entre voltas, picada em fatias que olham se o player gravou algo.
+#
+# Uma faixa nova só era vista na volta seguinte: até 15 s tocando e até um
+# minuto parado. Mas o player grava o banco no instante em que a faixa começa
+# (é a mtime dele que dá a hora de início), e o Tidal reescreve o user.ini. O
+# `-nt` é teste interno do shell — zero processos —, então perguntar isso a
+# cada 2 s custa nada e devolve o laço na hora certa. O `echo` que renova a
+# marca também é interno: nada aqui cria processo.
+VIGIA_DB=/tmp/.r1sc.vigia
+FATIA=2
+#
+# A trava contra rajada importa mais que a velocidade. Se o player gravar o
+# banco a toda hora durante a música, e não só na troca de faixa, acordar a
+# cada gravação viraria um r1collect a cada 2 s — processo em série com 1,5 MB
+# livres, o cenário exato dos travamentos de antes. Então só se acorda cedo uma
+# vez a cada CEDO_MIN segundos; no pior caso o laço roda poucas vezes mais que
+# antes, e no caso normal (o banco muda só quando a faixa troca) roda igual.
+CEDO_MIN=20
+ultimo_cedo=0
 espera() {
-    if [ "$fifo_ok" = 1 ]; then
-        read -t "$1" _tick <&9 2>/dev/null || :
-    else
+    # "Mudou enquanto eu dormia", e não "desde a última vez que acordei cedo".
+    echo > "$VIGIA_DB"
+    if [ "$fifo_ok" != 1 ]; then
         sleep "$1"
+        return
     fi
+    read -r _up _ < /proc/uptime
+    _up=${_up%.*}
+    _pode_cedo=0
+    [ $((_up - ultimo_cedo)) -ge "$CEDO_MIN" ] && _pode_cedo=1
+    _falta=$1
+    while [ "$_falta" -gt 0 ]; do
+        _f=$FATIA
+        [ "$_f" -gt "$_falta" ] && _f=$_falta
+        read -t "$_f" _tick <&9 2>/dev/null || :
+        _falta=$((_falta - _f))
+        [ "$_pode_cedo" = 1 ] || continue
+        if { [ -n "$DB" ] && [ "$DB" -nt "$VIGIA_DB" ]; } ||
+           { [ "$TIDAL" = 1 ] && [ "$TIDAL_INI" -nt "$VIGIA_DB" ]; }; then
+            ultimo_cedo=$((_up + $1 - _falta))
+            return
+        fi
+    done
 }
 
 # Existe rota para fora? Lido direto do /proc com o `read` interno do shell,
@@ -833,6 +870,22 @@ tem_rede() {
 # motivo. Lido do /proc com o `read` interno, sem awk nem grep: mesmo estilo
 # do tem_rede, mesmo custo (quase zero).
 MEM_MINIMA_KB=4000
+
+# Folga de verdade, não o mínimo: é o critério para criar um processo com
+# música tocando. Leitura interna do shell, sem processo.
+MEM_FOLGA_KB=12000
+REVIVER_MIN=300
+ultimo_reviver=0
+mem_folgada() {
+    [ -r /proc/meminfo ] || return 1
+    while read -r _chave _valor _resto; do
+        if [ "$_chave" = "MemAvailable:" ]; then
+            [ "$_valor" -ge "$MEM_FOLGA_KB" ] 2>/dev/null && return 0
+            return 1
+        fi
+    done < /proc/meminfo
+    return 1
+}
 
 tem_memoria() {
     [ -r /proc/meminfo ] || return 0
@@ -2197,6 +2250,15 @@ colheita=1
 
 if [ "$fifo_ok" = 1 ]; then
     registrar "espera sem fork (read -t no fifo; esperou ${_medido}s de 2)"
+
+# Nós antes do player, sempre, se a memória acabar.
+#
+# O r1net já é marcado com 900. Faltava o resto: o próprio daemon e cada
+# r1collect e r1send que ele cria — e filho herda o oom_score_adj do pai, então
+# uma linha aqui cobre todos. Com 600 eles ficam atrás do r1net e à frente do
+# player: perder uma volta de coleta se recupera na volta seguinte; perder o
+# player é a música parando, que é o travamento que quem usa enxerga.
+echo 600 > /proc/self/oom_score_adj 2>/dev/null || :
 else
     registrar "usando sleep: $motivo_espera (mediu ${_medido}s de 2)"
 fi
@@ -2726,6 +2788,29 @@ FIM_ESTADO
        [ "$pcm_aberto" != 1 ]; then
         registrar "audio parado; levantando o r1net de novo"
         subir_ajudante || :
+    elif [ "$rede_caiu" = 1 ] && [ "$rede_pronta" != 1 ]; then
+        # Caiu com o áudio tocando, e o áudio não para.
+        #
+        # Esperar a pausa era o certo enquanto ninguém ouvia álbum emendado:
+        # sem pausa o r1net nunca voltava, e o "tocando agora" ficava morto
+        # pelo resto da sessão — só as faixas terminadas subiam, depois, no
+        # envio em lote. Foi o relato.
+        #
+        # Levantá-lo com música tocando só é seguro com folga real: o r1net
+        # tem ~700 KB, não o 1,6 MB do curl, e só sobe se houver MEM_FOLGA_KB
+        # disponíveis — três vezes o mínimo de rede. E no máximo uma vez a cada
+        # REVIVER_MIN: se ele morrer de novo, é porque a memória está mesmo
+        # curta, e insistir viraria um ciclo de morre-e-levanta.
+        # Relógio pelo /proc/uptime com `read`: o t_agora deste arquivo vem
+        # de um $(date), que é processo, e nem sempre está definido aqui.
+        read -r _rv _ < /proc/uptime; _rv=${_rv%.*}
+        [ "$ultimo_reviver" = 0 ] && ultimo_reviver=$_rv
+        if [ $((_rv - ultimo_reviver)) -ge "$REVIVER_MIN" ] &&
+           mem_folgada; then
+            ultimo_reviver=$_rv
+            registrar "r1net fora ha tempo com audio tocando; levantando com folga de memoria"
+            subir_ajudante || :
+        fi
     fi
 
     olhar_tocando
