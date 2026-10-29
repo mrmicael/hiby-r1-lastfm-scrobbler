@@ -829,7 +829,15 @@ CEDO_MIN=20
 ultimo_cedo=0
 espera() {
     # "Mudou enquanto eu dormia", e não "desde a última vez que acordei cedo".
-    echo > "$VIGIA_DB"
+    # A marca só é regravada quando houve mudança desde a última: gravá-la em
+    # toda volta era uma escrita em arquivo por ciclo sem motivo, e levou o
+    # custo da volta para a beira do teto de 4 ms. Sem mudança, aqui só há dois
+    # testes internos do shell.
+    if [ ! -f "$VIGIA_DB" ] ||
+       { [ -n "$DB" ] && [ "$DB" -nt "$VIGIA_DB" ]; } ||
+       { [ "$TIDAL" = 1 ] && [ "$TIDAL_INI" -nt "$VIGIA_DB" ]; }; then
+        echo > "$VIGIA_DB"
+    fi
     if [ "$fifo_ok" != 1 ]; then
         sleep "$1"
         return
